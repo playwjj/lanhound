@@ -318,10 +318,9 @@ isolated by the access point. Run another instance there.
 ## Roadmap
 
 - **v0.1**: discovery engine, history, web UI, new-device alerts
-- **v0.2 (this)**: security alerts (ARP spoofing/conflicts, ARP floods,
-  gateway MAC change, rogue DHCP), critical devices, alert log, CSV export
-- **v0.2**: security alerts, router/modem device tables, IPv6, heat
-  maps, randomized-MAC fingerprinting
+- **v0.2**: security alerts (ARP spoofing/conflicts, ARP floods, gateway
+  MAC change, rogue DHCP, critical devices), alert log, router/modem
+  device tables, IPv6, heat maps, randomized-MAC fingerprinting, CSV export
 - **Next release** (done on main): Home Assistant (MQTT discovery),
   service detection (opt-in), remote probes for VLANs and guest networks
 
