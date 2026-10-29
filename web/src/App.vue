@@ -9,6 +9,7 @@ import DeviceList from './components/DeviceList.vue'
 import DeviceDrawer from './components/DeviceDrawer.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import AlertsPanel from './components/AlertsPanel.vue'
+import ActivityCard from './components/ActivityCard.vue'
 
 onMounted(connect)
 
@@ -138,6 +139,8 @@ async function markAllKnown() {
       <button class="btn small" @click="filter = 'new'">{{ t('new') }}</button>
       <button class="btn small primary" @click="markAllKnown"><Icon name="check" :size="14" />{{ t('markAllKnown') }}</button>
     </div>
+
+    <ActivityCard v-if="devices.length" />
 
     <div class="toolbar">
       <label class="search">

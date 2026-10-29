@@ -119,6 +119,7 @@ func (s *Server) Handler() http.Handler {
 		s.Scanner.Sweep()
 		writeJSON(w, map[string]bool{"ok": true})
 	})
+	mux.HandleFunc("GET /api/activity", s.activity)
 	mux.HandleFunc("GET /api/alerts", s.alerts)
 	mux.HandleFunc("POST /api/alerts/{id}/trust", s.trustAlert)
 	mux.HandleFunc("GET /api/routers", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, s.routerStatus()) })
@@ -279,6 +280,19 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, h)
+}
+
+func (s *Server) activity(w http.ResponseWriter, r *http.Request) {
+	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
+	if days <= 0 || days > 31 {
+		days = 7
+	}
+	a, err := s.Registry.Activity(days)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, a)
 }
 
 func (s *Server) alerts(w http.ResponseWriter, r *http.Request) {

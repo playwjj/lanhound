@@ -6,6 +6,7 @@ import { t, locale } from '../i18n'
 import { ago, dateTime, displayName } from '../format'
 import Icon from './Icon.vue'
 import InlineName from './InlineName.vue'
+import HeatGrid from './HeatGrid.vue'
 
 const props = defineProps({ device: Object })
 const emit = defineEmits(['close', 'select'])
@@ -21,7 +22,7 @@ const error = ref('')
 
 async function load() {
   try {
-    history.value = await api.history(props.device.id, 7)
+    history.value = await api.history(props.device.id, 28)
   } catch (e) {
     error.value = e.message
   }
@@ -80,6 +81,51 @@ const forget = () =>
     await api.remove(props.device.id)
     emit('close')
   })
+
+// Weekday × hour: share of each hour-slot the device was online over the
+// last 28 days (only counting time since it was first seen).
+const usual = computed(() => {
+  const end = now.value
+  const begin = Math.max(end - 28 * 864e5, new Date(props.device.firstSeen).getTime())
+  const online = Array.from({ length: 7 }, () => new Array(24).fill(0))
+  const total = Array.from({ length: 7 }, () => new Array(24).fill(0))
+  const slot = (ms) => {
+    const d = new Date(ms)
+    return [(d.getDay() + 6) % 7, d.getHours()] // Monday first
+  }
+  // Exposure: how much of each slot lies inside the window.
+  for (let t0 = Math.floor(begin / 3600e3) * 3600e3; t0 < end; t0 += 3600e3) {
+    const span = Math.min(t0 + 3600e3, end) - Math.max(t0, begin)
+    if (span > 0) {
+      const [w, h] = slot(t0)
+      total[w][h] += span
+    }
+  }
+  for (const s of history.value.sessions) {
+    let a = Math.max(new Date(s.start).getTime(), begin)
+    const b = s.end.startsWith('0001') ? end : Math.min(new Date(s.end).getTime(), end)
+    while (a < b) {
+      const next = Math.min(Math.floor(a / 3600e3) * 3600e3 + 3600e3, b)
+      const [w, h] = slot(a)
+      online[w][h] += next - a
+      a = next
+    }
+  }
+  const loc = locale.value === 'zh' ? 'zh-CN' : undefined
+  const fmt = new Intl.DateTimeFormat(loc, { weekday: 'short' })
+  const monday = new Date(2024, 0, 1) // a Monday
+  return online.map((hours, w) => {
+    const day = fmt.format(new Date(monday.getTime() + w * 864e5))
+    return {
+      label: day,
+      cells: hours.map((ms, h) => {
+        if (!total[w][h]) return { value: null, tip: '' }
+        const share = ms / total[w][h]
+        return { value: share, tip: t('usualTip', { day, h: String(h).padStart(2, '0'), p: Math.round(share * 100) }) }
+      }),
+    }
+  })
+})
 
 // Seven day rows, each with the online periods that fall into it.
 const days = computed(() => {
@@ -195,6 +241,9 @@ const days = computed(() => {
           <span class="ticks"><span>0</span><span>6</span><span>12</span><span>18</span><span>24</span></span>
         </div>
       </div>
+
+      <h3>{{ t('usualHours') }}</h3>
+      <HeatGrid :rows="usual" :max="1" :less="t('lessOnline')" :more="t('moreOnline')" />
 
       <h3>{{ t('events') }}</h3>
       <ul class="events">

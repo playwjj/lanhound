@@ -475,3 +475,30 @@ func (s *Store) Alert(id int64) (Alert, error) {
 	a.At, a.Data = fromUnix(at), json.RawMessage(data)
 	return a, err
 }
+
+// DeviceSession is a session with its device.
+type DeviceSession struct {
+	DeviceID int64
+	Session
+}
+
+// AllSessions returns every device's online periods overlapping
+// [since, now].
+func (s *Store) AllSessions(since time.Time) ([]DeviceSession, error) {
+	rows, err := s.db.Query(`SELECT device_id, start, COALESCE(end, 0) FROM sessions WHERE end IS NULL OR end >= ?`, unix(since))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DeviceSession
+	for rows.Next() {
+		var d DeviceSession
+		var start, end int64
+		if err := rows.Scan(&d.DeviceID, &start, &end); err != nil {
+			return nil, err
+		}
+		d.Start, d.End = fromUnix(start), fromUnix(end)
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}

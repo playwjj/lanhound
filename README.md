@@ -56,8 +56,9 @@ docker compose up -d
   LanHound says so in the alert and offers a one-click **merge** in the UI.
   The merged device keeps every MAC and its full history.
 - **Keeps history.** Online/offline sessions and events (IP changes,
-  hostname changes) per device, with a 7-day presence timeline, kept for 90
-  days in a single SQLite file.
+  hostname changes) per device, a 7-day presence timeline, a "usual
+  hours" heat map per device and a network activity heat map (devices
+  online per hour), kept for 90 days in a single SQLite file.
 - **A live, friendly web UI.** Updates stream in real time. Search and
   filter, rename inline, mark devices as known, add notes. It works on a
   phone, in English and 中文.

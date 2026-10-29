@@ -451,3 +451,23 @@ func TestRouterEntries(t *testing.T) {
 		t.Fatalf("password lost: %q", rt.configs[0].Password)
 	}
 }
+
+func TestActivity(t *testing.T) {
+	h := newHarness(t, "")
+	h.clk.now = time.Date(2027, 1, 15, 10, 30, 0, 0, time.UTC)
+	h.r.Observe(sight("24:0a:c4:00:00:03", "192.168.2.87")) // online since 10:30
+	h.clk.Add(-5 * time.Hour)
+	h.r.Observe(sight("24:0a:c4:00:00:04", "192.168.2.88")) // 05:30, never closed below
+	h.clk.Add(5 * time.Hour)
+	a, err := h.r.Activity(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(a.Hourly) != 24 || !a.Start.Equal(time.Date(2027, 1, 14, 11, 0, 0, 0, time.UTC)) {
+		t.Fatalf("window %v len %d", a.Start, len(a.Hourly))
+	}
+	last := a.Hourly[23] // 10:00–11:00
+	if last != 2 || a.Hourly[18] != 1 || a.Hourly[17] != 0 {
+		t.Fatalf("hourly %v", a.Hourly)
+	}
+}

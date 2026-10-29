@@ -15,6 +15,7 @@ export const api = {
   remove: (id) => call('DELETE', `/api/devices/${id}`),
   merge: (id, into) => call('POST', `/api/devices/${id}/merge`, { into }),
   history: (id, days = 7) => call('GET', `/api/devices/${id}/history?days=${days}`),
+  activity: (days = 7) => call('GET', `/api/activity?days=${days}`),
   knownAll: () => call('POST', '/api/known-all'),
   scan: () => call('POST', '/api/scan'),
   trustAlert: (id) => call('POST', `/api/alerts/${id}/trust`),
