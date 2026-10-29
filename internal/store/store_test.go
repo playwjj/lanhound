@@ -134,13 +134,20 @@ func TestSettings(t *testing.T) {
 func TestAlertsAndCritical(t *testing.T) {
 	s := open(t)
 	t0 := time.Unix(1_800_000_000, 0)
-	d := &Device{MAC: "aa:bb:cc:00:00:09", Critical: true, FirstSeen: t0, LastSeen: t0}
+	d := &Device{MAC: "aa:bb:cc:00:00:09", Critical: true, LinkType: "wired", FirstSeen: t0, LastSeen: t0}
 	if err := s.InsertDevice(d); err != nil {
 		t.Fatal(err)
 	}
 	devs, _, _ := s.Devices()
-	if !devs[0].Critical {
-		t.Fatal("critical flag not stored")
+	if !devs[0].Critical || devs[0].LinkType != "wired" {
+		t.Fatal("critical flag or link type not stored")
+	}
+	d.LinkType = "wifi"
+	if err := s.UpdateDevice(d); err != nil {
+		t.Fatal(err)
+	}
+	if devs, _, _ = s.Devices(); devs[0].LinkType != "wifi" {
+		t.Fatalf("link type after update: %q", devs[0].LinkType)
 	}
 	a := &Alert{At: t0, Kind: "device_offline", DeviceID: d.ID, Data: []byte(`{"event":"device_offline"}`)}
 	if err := s.AddAlert(a); err != nil || a.ID == 0 {
@@ -163,7 +170,7 @@ func TestMigrateLegacyDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Recreate a v0.1.0 database: no critical column, no alerts table.
-	for _, q := range []string{`DROP TABLE alerts`, `ALTER TABLE devices DROP COLUMN critical`, `ALTER TABLE devices DROP COLUMN ipv6`, `ALTER TABLE devices DROP COLUMN dhcp_fp`, `ALTER TABLE devices DROP COLUMN services`, `ALTER TABLE devices DROP COLUMN kind`, `ALTER TABLE devices DROP COLUMN services_at`, `ALTER TABLE devices DROP COLUMN wifi`, `PRAGMA user_version = 0`} {
+	for _, q := range []string{`DROP TABLE alerts`, `ALTER TABLE devices DROP COLUMN critical`, `ALTER TABLE devices DROP COLUMN ipv6`, `ALTER TABLE devices DROP COLUMN dhcp_fp`, `ALTER TABLE devices DROP COLUMN services`, `ALTER TABLE devices DROP COLUMN kind`, `ALTER TABLE devices DROP COLUMN services_at`, `ALTER TABLE devices DROP COLUMN wifi`, `ALTER TABLE devices DROP COLUMN link_type`, `PRAGMA user_version = 0`} {
 		if _, err := s.db.Exec(q); err != nil {
 			t.Fatal(q, err)
 		}

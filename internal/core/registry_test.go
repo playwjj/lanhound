@@ -788,3 +788,55 @@ func TestSettingsSMTPPasswordMasked(t *testing.T) {
 		t.Fatal("masked SMTP password overwrote the real one")
 	}
 }
+
+func TestDockerContainerIsNotRandomized(t *testing.T) {
+	h := newHarness(t, "")
+	h.r.Observe(sight("02:42:c0:a8:02:ca", "192.168.2.202")) // macvlan container
+	devs := h.r.Devices()
+	if len(devs) != 1 {
+		t.Fatalf("devices %+v", devs)
+	}
+	v := devs[0]
+	if v.Randomized || v.Vendor != "Docker container" || v.Link != nil {
+		t.Fatalf("randomized=%v vendor=%q link=%+v", v.Randomized, v.Vendor, v.Link)
+	}
+}
+
+func TestManualLink(t *testing.T) {
+	h := newHarness(t, "")
+	h.r.Observe(sight("da:00:00:00:00:51", "192.168.2.51")) // guessed Wi-Fi from its random MAC
+	h.r.Observe(sight("02:42:c0:a8:02:ca", "192.168.2.202"))
+	id := func(mac string) int64 {
+		for _, v := range h.r.Devices() {
+			if v.MAC == mac {
+				return v.ID
+			}
+		}
+		t.Fatal("no device", mac)
+		return 0
+	}
+	str := func(s string) *string { return &s }
+
+	v, err := h.r.Update(id("da:00:00:00:00:51"), Patch{LinkType: str("wired")})
+	if err != nil || v.Link == nil || v.Link.Type != "wired" || !v.Link.Certain || !v.Link.Manual {
+		t.Fatalf("manual wired: %+v %v", v.Link, err)
+	}
+	if v, _ := h.r.Update(id("02:42:c0:a8:02:ca"), Patch{LinkType: str("wifi")}); v.Link == nil || v.Link.Type != "wifi" || !v.Link.Manual {
+		t.Fatalf("manual wifi without any clue: %+v", v.Link)
+	}
+	if _, err := h.r.Update(id("da:00:00:00:00:51"), Patch{LinkType: str("fiber")}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("bad value: %v", err)
+	}
+
+	// A live router report still wins over the user's setting.
+	hw, _ := net.ParseMAC("da:00:00:00:00:51")
+	h.r.ObserveRouter("OpenWrt", []router.Entry{{MAC: hw, Wireless: &router.Wireless{Band: "5 GHz"}}}, false)
+	if v, _ := h.r.Update(id("da:00:00:00:00:51"), Patch{}); v.Link == nil || v.Link.Type != "wifi" || v.Link.Manual || v.Link.Via != "OpenWrt" {
+		t.Fatalf("router report: %+v", v.Link)
+	}
+
+	// Back to automatic.
+	if v, _ := h.r.Update(id("02:42:c0:a8:02:ca"), Patch{LinkType: str("")}); v.Link != nil {
+		t.Fatalf("automatic: %+v", v.Link)
+	}
+}

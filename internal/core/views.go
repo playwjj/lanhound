@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/playwjj/lanhound/internal/notify"
+	"github.com/playwjj/lanhound/internal/oui"
 	"github.com/playwjj/lanhound/internal/store"
 )
 
@@ -36,10 +37,11 @@ func (r *Registry) viewWith(d *store.Device, idx featureIndex) View {
 func (r *Registry) publish(d *store.Device) { r.o.Hub.Publish("device", r.view(d)) }
 
 // randomized reports a locally administered MAC — what phones use for
-// per-network MAC randomization.
+// per-network MAC randomization. Docker containers' MACs are locally
+// administered too, but stable.
 func randomized(mac string) bool {
 	hw, err := net.ParseMAC(mac)
-	return err == nil && len(hw) > 0 && hw[0]&0x02 != 0
+	return err == nil && len(hw) > 0 && hw[0]&0x02 != 0 && !oui.IsDocker(hw)
 }
 
 // Devices returns every device, online first, then by IP.

@@ -60,6 +60,7 @@ async function run(fn) {
 const saveNote = () => run(async () => upsert(await api.patch(props.device.id, { note: note.value })))
 const toggleCritical = () => run(async () => upsert(await api.patch(props.device.id, { critical: !props.device.critical })))
 const toggleKnown = () => run(async () => upsert(await api.patch(props.device.id, { known: !props.device.known })))
+const setLinkType = (linkType) => run(async () => upsert(await api.patch(props.device.id, { linkType })))
 const merge = (into) =>
   run(async () => {
     const merged = await api.merge(props.device.id, Number(into))
@@ -128,20 +129,26 @@ const forget = () =>
           <dt>{{ t('model') }}</dt>
           <dd>{{ device.model }}</dd>
         </template>
-        <template v-if="device.link">
-          <dt>{{ t('link') }}</dt>
-          <dd>
-            {{ t('link_' + device.link.type) }}
+        <dt>{{ t('link') }}</dt>
+        <dd class="link-dd">
+          <select class="link-pick" :value="device.linkType || ''" :disabled="busy" :title="t('linkPickTip')" @change="setLinkType($event.target.value)">
+            <option value="">{{ t('linkAuto') }}</option>
+            <option value="wired">{{ t('link_wired') }}</option>
+            <option value="wifi">{{ t('link_wifi') }}</option>
+          </select>
+          <span v-if="device.link && !device.link.manual">
             <template v-if="device.link.certain">
+              {{ t('link_' + device.link.type) }}
               <span v-if="device.link.band"> · {{ device.link.band }}</span>
               <span v-if="device.link.signal"> · {{ device.link.signal }} dBm</span>
               <span class="muted small"> {{ t('linkVia', { r: device.link.via }) }}</span>
             </template>
             <span v-else class="muted small" :title="t('linkGuessTip')">
-              ({{ t('linkLikely') }}: {{ device.link.reasons.map((r) => t('why_' + r.replace('-', '_'))).join(locale === 'zh' ? '、' : ', ') }})
+              {{ t('link_' + device.link.type) }}? ({{ t('linkLikely') }}: {{ device.link.reasons.map((r) => t('why_' + r.replace('-', '_'))).join(locale === 'zh' ? '、' : ', ') }})
             </span>
-          </dd>
-        </template>
+          </span>
+          <span v-else-if="!device.link" class="muted small">{{ t('linkUnknown') }}</span>
+        </dd>
         <template v-if="device.kind">
           <dt>{{ t('kind') }}</dt>
           <dd>{{ t('kind_' + device.kind) }}</dd>
@@ -286,6 +293,16 @@ const forget = () =>
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+.link-dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.link-pick {
+  width: auto;
+  padding: 2px 6px;
 }
 .field {
   display: block;

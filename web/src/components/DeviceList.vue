@@ -57,7 +57,7 @@ function subtitle(d) {
             v-if="d.link"
             class="badge link"
             :class="[d.link.type, { guess: !d.link.certain }]"
-            :title="d.link.certain ? [d.link.band, d.link.signal ? d.link.signal + ' dBm' : '', t('linkVia', { r: d.link.via })].filter(Boolean).join(' · ') : t('linkGuessTip')"
+            :title="d.link.manual ? t('linkManualTip') : d.link.certain ? [d.link.band, d.link.signal ? d.link.signal + ' dBm' : '', t('linkVia', { r: d.link.via })].filter(Boolean).join(' · ') : t('linkGuessTip')"
           >{{ t('link_' + d.link.type) }}{{ d.link.certain ? '' : '?' }}</span>
           <span v-if="d.sameAs && state.devices[d.sameAs]" class="badge random same" :title="t('sameName', { name: state.devices[d.sameAs].name || state.devices[d.sameAs].hostname || state.devices[d.sameAs].mac, why: whyText(d) })">
             <Icon name="merge" :size="11" />{{ t('sameNameBadge') }}

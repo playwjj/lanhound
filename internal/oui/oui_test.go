@@ -10,6 +10,8 @@ func TestLookupLongestPrefix(t *testing.T) {
 		"a0:c5:f2:b5:85:56": "Oray.com co., LTD.",    // MA-M block inside an IEEE-RA MA-L
 		"00:11:32:aa:bb:02": "Synology Incorporated", // plain MA-L
 		"da:a1:19:00:00:02": "Locally administered (likely randomized)",
+		"02:42:c0:a8:02:ca": Docker,
+		"02:43:c0:a8:02:ca": "Locally administered (likely randomized)",
 		"00:00:00:00:00:00": "XEROX CORPORATION",
 	}
 	for mac, want := range cases {

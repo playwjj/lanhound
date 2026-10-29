@@ -93,7 +93,8 @@ docker compose up -d
   so honestly. With an OpenWrt router source it knows: "Wi-Fi · 5 GHz ·
   −52 dBm" from the router's own client list. Otherwise it gives a
   marked guess with the reason (random MAC, Wi-Fi chip maker, phone →
-  Wi-Fi; router, NAS → wired), or no guess at all.
+  Wi-Fi; router, NAS → wired), or no guess at all. A wrong guess can be
+  set by hand in the device panel.
 - **Multi-interface.** Wired + Wi-Fi or dual-NIC hosts get one watcher
   per broadcast domain, and devices are grouped by interface. Interfaces
   that come and go are followed automatically.

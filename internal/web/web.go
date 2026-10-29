@@ -277,6 +277,10 @@ func fail(w http.ResponseWriter, err error) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
+	if errors.Is(err, core.ErrInvalid) {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	logx.L("web").Error("request failed", "err", err)
 	http.Error(w, "internal error", http.StatusInternalServerError)
 }

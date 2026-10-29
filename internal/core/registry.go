@@ -18,6 +18,9 @@ import (
 // ErrNotFound is returned for unknown device IDs.
 var ErrNotFound = errors.New("device not found")
 
+// ErrInvalid is returned for an edit with a value out of range.
+var ErrInvalid = errors.New("invalid value")
+
 // Options configures a Registry.
 type Options struct {
 	Store    *store.Store
@@ -66,6 +69,7 @@ type Patch struct {
 	Note     *string `json:"note"`
 	Known    *bool   `json:"known"`
 	Critical *bool   `json:"critical"`
+	LinkType *string `json:"linkType"` // "wifi", "wired" or "" (automatic)
 }
 
 // AlertStatus reports notification health to the UI.

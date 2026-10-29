@@ -34,6 +34,14 @@ func (r *Registry) Update(id int64, p Patch) (View, error) {
 	if p.Critical != nil {
 		d.Critical = *p.Critical
 	}
+	if p.LinkType != nil {
+		switch *p.LinkType {
+		case "", "wifi", "wired":
+			d.LinkType = *p.LinkType
+		default:
+			return View{}, ErrInvalid
+		}
+	}
 	if err := r.o.Store.UpdateDevice(d); err != nil {
 		return View{}, err
 	}
@@ -100,6 +108,9 @@ func (r *Registry) Merge(src, dst int64) (View, error) {
 	}
 	if m.Model == "" {
 		m.Model = s.Model
+	}
+	if m.LinkType == "" {
+		m.LinkType = s.LinkType
 	}
 	if s.WiFi != nil && (m.WiFi == nil || s.WiFi.At.After(m.WiFi.At)) {
 		m.WiFi = s.WiFi

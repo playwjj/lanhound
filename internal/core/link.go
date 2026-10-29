@@ -11,10 +11,12 @@ import (
 
 // Link is how a device is connected, as the UI shows it. LanHound sees
 // Ethernet frames either way, so it is only certain when a router
-// reports the Wi-Fi association; otherwise it guesses from clues.
+// reports the Wi-Fi association or the user set it; otherwise it
+// guesses from clues.
 type Link struct {
 	Type    string   `json:"type"`              // "wifi" or "wired"
-	Certain bool     `json:"certain"`           // reported by a router
+	Certain bool     `json:"certain"`           // reported by a router, or set by the user
+	Manual  bool     `json:"manual,omitempty"`  // set by the user
 	Band    string   `json:"band,omitempty"`    // certain only
 	Signal  int      `json:"signal,omitempty"`  // dBm, certain only
 	Via     string   `json:"via,omitempty"`     // router label, certain only
@@ -39,6 +41,9 @@ var phoneName = regexp.MustCompile(`(?i)iphone|ipad|^(galaxy|android|redmi|pixel
 func link(d *store.Device, now time.Time) *Link {
 	if w := d.WiFi; w != nil && now.Sub(w.At) < wifiStale {
 		return &Link{Type: "wifi", Certain: true, Band: w.Band, Signal: w.Signal, Via: w.Router}
+	}
+	if d.LinkType != "" {
+		return &Link{Type: d.LinkType, Certain: true, Manual: true}
 	}
 	var wifi []string
 	if randomized(d.MAC) {
