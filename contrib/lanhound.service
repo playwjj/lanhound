@@ -1,0 +1,43 @@
+# systemd unit for running LanHound without Docker.
+#
+#   sudo install -m 755 lanhound_<version>_linux_<arch> /usr/local/bin/lanhound
+#   sudo cp contrib/lanhound.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now lanhound
+#
+# Settings go in an override (sudo systemctl edit lanhound), e.g.
+#   [Service]
+#   Environment=TZ=Asia/Shanghai LANHOUND_LANG=zh
+[Unit]
+Description=LanHound home network watchdog
+Documentation=https://github.com/playwjj/lanhound
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/lanhound
+Environment=LANHOUND_DATA=/var/lib/lanhound
+Restart=on-failure
+RestartSec=5
+
+# Runs as a throwaway unprivileged user with only the one capability
+# ARP needs; the database lives in /var/lib/lanhound.
+DynamicUser=yes
+StateDirectory=lanhound
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_PACKET AF_UNIX AF_NETLINK
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

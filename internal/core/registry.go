@@ -127,6 +127,15 @@ func NewRegistry(o Options) (*Registry, error) {
 	}
 	for _, d := range devs {
 		r.devices[d.ID] = d
+		// Refresh vendors when a newer OUI registry ships with the binary.
+		if hw, err := net.ParseMAC(d.MAC); err == nil {
+			if v := oui.Lookup(hw); v != d.Vendor {
+				d.Vendor = v
+				if err := o.Store.UpdateDevice(d); err != nil {
+					return nil, err
+				}
+			}
+		}
 	}
 	sort.Slice(macs, func(i, j int) bool { return macs[i].FirstSeen.Before(macs[j].FirstSeen) })
 	for _, m := range macs {

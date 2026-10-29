@@ -3,6 +3,7 @@ package web
 import (
 	"bufio"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -88,6 +89,14 @@ func TestDevicesAPI(t *testing.T) {
 	}
 	if r := do(t, "GET", ts.URL+"/api/devices/"+itoa(id)+"/history", "", nil); r.StatusCode != 200 {
 		t.Fatalf("history: %d", r.StatusCode)
+	}
+	r = do(t, "GET", ts.URL+"/api/devices.csv", "", nil)
+	b, _ := io.ReadAll(r.Body)
+	if r.StatusCode != 200 || !strings.HasPrefix(string(b), "\ufeffname,hostname,ip") || !strings.Contains(string(b), "Plug,,192.168.2.9,24:0a:c4:00:00:01") {
+		t.Fatalf("csv %d:\n%s", r.StatusCode, b)
+	}
+	if got := csvSafe("=HYPERLINK(1)"); got != "'=HYPERLINK(1)" {
+		t.Fatalf("csvSafe = %q", got)
 	}
 	do(t, "POST", ts.URL+"/api/scan", "", csrf)
 	if sc.swept != 1 {

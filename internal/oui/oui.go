@@ -1,6 +1,7 @@
-// Package oui maps the first three bytes of a MAC address (the OUI)
-// to the vendor name registered with the IEEE. The data file is
-// generated from the official IEEE registry by scripts/update-oui.py.
+// Package oui maps a MAC address to the vendor registered with the
+// IEEE. The data file holds MA-L (24-bit), MA-M (28-bit) and MA-S
+// (36-bit) assignments, generated from the official registries by
+// scripts/update-oui.py; the longest matching prefix wins.
 package oui
 
 import (
@@ -20,12 +21,13 @@ var (
 )
 
 func load() {
-	table = make(map[string]string, 42000)
+	table = make(map[string]string, 55000)
 	for _, line := range strings.Split(raw, "\n") {
-		if len(line) < 8 || line[6] != '\t' {
+		prefix, vendor, ok := strings.Cut(line, "\t")
+		if !ok || vendor == "" {
 			continue
 		}
-		table[line[:6]] = line[7:]
+		table[prefix] = vendor
 	}
 }
 
@@ -41,6 +43,11 @@ func Lookup(mac net.HardwareAddr) string {
 		return "Locally administered (likely randomized)"
 	}
 	once.Do(load)
-	key := strings.ToUpper(fmt.Sprintf("%02x%02x%02x", mac[0], mac[1], mac[2]))
-	return table[key]
+	hex := strings.ToUpper(fmt.Sprintf("%x", []byte(mac)))
+	for _, n := range []int{9, 7, 6} { // MA-S, MA-M, MA-L
+		if v, ok := table[hex[:n]]; ok {
+			return v
+		}
+	}
+	return ""
 }

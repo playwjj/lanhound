@@ -147,7 +147,22 @@ Only run LanHound on networks you own or are authorized to monitor.
 ## Without Docker
 
 Download a binary from [Releases](https://github.com/playwjj/lanhound/releases)
-(linux amd64 / arm64 / armv7 / 386), or build it:
+(linux amd64 / arm64 / armv7 / 386) and run it as a hardened systemd
+service. It runs as an unprivileged dynamic user with only `CAP_NET_RAW`,
+and the data lives in `/var/lib/lanhound`:
+
+```sh
+sudo install -m 755 lanhound_<version>_linux_amd64 /usr/local/bin/lanhound
+sudo curl -fsSLo /etc/systemd/system/lanhound.service \
+  https://raw.githubusercontent.com/playwjj/lanhound/main/contrib/lanhound.service
+sudo systemctl daemon-reload && sudo systemctl enable --now lanhound
+sudo systemctl edit lanhound    # optional: [Service] Environment=TZ=Asia/Shanghai …
+```
+
+This is also the way to go when the host can't pull container images.
+The binary has no dependencies, so copying one file is enough.
+
+To run it by hand or build from source:
 
 ```sh
 make build                              # needs Go 1.26+

@@ -92,6 +92,7 @@ const messages = {
     error: 'Error',
     language: 'Language',
     justNow: 'just now',
+    exportCsv: 'Export devices as CSV',
   },
   zh: {
     devices: '设备',
@@ -184,6 +185,7 @@ const messages = {
     error: '错误',
     language: '语言',
     justNow: '刚刚',
+    exportCsv: '导出设备列表（CSV）',
   },
 }
 

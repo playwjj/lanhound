@@ -102,7 +102,18 @@ Webhook 会收到一个 JSON POST，字段说明见[英文 README](README.md#ale
 
 ## 不用 Docker
 
-从 [Releases](https://github.com/playwjj/lanhound/releases) 下载二进制（linux amd64 / arm64 / armv7 / 386），或自行编译：
+从 [Releases](https://github.com/playwjj/lanhound/releases) 下载二进制（linux amd64 / arm64 / armv7 / 386），装成 systemd 服务。服务以无特权的临时用户运行，只拿 `CAP_NET_RAW` 这一项权限，数据放在 `/var/lib/lanhound`：
+
+```sh
+sudo install -m 755 lanhound_<version>_linux_amd64 /usr/local/bin/lanhound
+sudo cp contrib/lanhound.service /etc/systemd/system/   # 仓库里的 unit 文件
+sudo systemctl daemon-reload && sudo systemctl enable --now lanhound
+sudo systemctl edit lanhound    # 可选：[Service] Environment=TZ=Asia/Shanghai LANHOUND_LANG=zh
+```
+
+**国内服务器拉不到 Docker 镜像？** 这是最省事的办法：二进制没有任何依赖，在能上网的电脑上下载好，`scp` 过去就能用。也可以给 Docker 配置镜像加速后再用上面的 Docker 方式。
+
+手动运行或自行编译：
 
 ```sh
 make build                              # 需要 Go 1.26+

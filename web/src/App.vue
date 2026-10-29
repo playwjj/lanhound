@@ -120,6 +120,7 @@ async function markAllKnown() {
         <Icon name="search" class="search-icon" />
         <input v-model="query" type="search" :placeholder="t('search')" />
       </label>
+      <a class="btn export" href="/api/devices.csv" download :title="t('exportCsv')"><Icon name="download" /><span class="hide-sm">CSV</span></a>
       <div class="seg" role="tablist">
         <button
           v-for="f in ['all', 'online', 'offline', 'new']"
@@ -264,6 +265,10 @@ main {
   left: 10px;
   top: 10px;
   color: var(--muted);
+}
+.export {
+  text-decoration: none;
+  height: 36px;
 }
 .seg {
   display: inline-flex;
