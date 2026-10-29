@@ -60,6 +60,12 @@ type Sighting struct {
 
 	// IP6 is an IPv6 address the device uses (from NDP or an echo reply).
 	IP6 net.IP
+
+	// DHCPFingerprint is "<option 55 list>|<option 60>" from a DHCP
+	// request, e.g. "1,121,3,6,15,108,114,119,252|android-dhcp-14". It
+	// identifies the OS build, not the device, but stays the same when a
+	// phone rotates its MAC.
+	DHCPFingerprint string
 }
 
 // HostnamePriority ranks hostname sources: a name the device chose for

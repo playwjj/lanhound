@@ -3,6 +3,8 @@ package passive
 import (
 	"encoding/binary"
 	"net"
+	"strconv"
+	"strings"
 )
 
 const (
@@ -10,6 +12,8 @@ const (
 	dhcpMagic     = 0x63825363
 
 	optHostname    = 12
+	optParamList   = 55
+	optVendorClass = 60
 	optRequestedIP = 50
 	optMsgType     = 53
 	optServerID    = 54
@@ -80,7 +84,20 @@ func decodeDHCPRequest(payload []byte, base Sighting) []Sighting {
 	if name := cleanName(string(m.options[optHostname])); name != "" {
 		s.Hostname, s.HostnameSource = name, SrcDHCP
 	}
+	s.DHCPFingerprint = dhcpFingerprint(m)
 	return []Sighting{s}
+}
+
+func dhcpFingerprint(m bootp) string {
+	prl := m.options[optParamList]
+	if len(prl) == 0 {
+		return ""
+	}
+	parts := make([]string, len(prl))
+	for i, o := range prl {
+		parts[i] = strconv.Itoa(int(o))
+	}
+	return strings.Join(parts, ",") + "|" + cleanName(string(m.options[optVendorClass]))
 }
 
 // decodeDHCPReply handles server → client messages. The server is a

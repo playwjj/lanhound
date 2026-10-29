@@ -162,7 +162,7 @@ func TestMigrateLegacyDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Recreate a v0.1.0 database: no critical column, no alerts table.
-	for _, q := range []string{`DROP TABLE alerts`, `ALTER TABLE devices DROP COLUMN critical`, `ALTER TABLE devices DROP COLUMN ipv6`, `PRAGMA user_version = 0`} {
+	for _, q := range []string{`DROP TABLE alerts`, `ALTER TABLE devices DROP COLUMN critical`, `ALTER TABLE devices DROP COLUMN ipv6`, `ALTER TABLE devices DROP COLUMN dhcp_fp`, `PRAGMA user_version = 0`} {
 		if _, err := s.db.Exec(q); err != nil {
 			t.Fatal(q, err)
 		}

@@ -28,6 +28,7 @@ type Device struct {
 	MAC            string    `json:"mac"` // most recently seen
 	IP             string    `json:"ip"`
 	IPv6           []string  `json:"ipv6"` // most recent first
+	DHCPFP         string    `json:"dhcpFingerprint"`
 	Iface          string    `json:"interface"`
 	Online         bool      `json:"online"`
 	Critical       bool      `json:"critical"` // alert when it goes offline
@@ -146,6 +147,7 @@ var migrations = []string{
 	);
 	CREATE INDEX IF NOT EXISTS alerts_at ON alerts(at);`,
 	`ALTER TABLE devices ADD COLUMN ipv6 TEXT NOT NULL DEFAULT '';`,
+	`ALTER TABLE devices ADD COLUMN dhcp_fp TEXT NOT NULL DEFAULT '';`,
 }
 
 func migrate(db *sql.DB) error {
@@ -199,7 +201,7 @@ func b2i(b bool) int {
 
 // Devices loads every device and every MAC address.
 func (s *Store) Devices() ([]*Device, []MAC, error) {
-	rows, err := s.db.Query(`SELECT id, name, note, known, hostname, hostname_source, model, vendor, mac, ip, ipv6, iface, online, critical, first_seen, last_seen FROM devices`)
+	rows, err := s.db.Query(`SELECT id, name, note, known, hostname, hostname_source, model, vendor, mac, ip, ipv6, dhcp_fp, iface, online, critical, first_seen, last_seen FROM devices`)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -210,7 +212,7 @@ func (s *Store) Devices() ([]*Device, []MAC, error) {
 		var known, online, critical int
 		var ipv6 string
 		var first, last int64
-		if err := rows.Scan(&d.ID, &d.Name, &d.Note, &known, &d.Hostname, &d.HostnameSource, &d.Model, &d.Vendor, &d.MAC, &d.IP, &ipv6, &d.Iface, &online, &critical, &first, &last); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &d.Note, &known, &d.Hostname, &d.HostnameSource, &d.Model, &d.Vendor, &d.MAC, &d.IP, &ipv6, &d.DHCPFP, &d.Iface, &online, &critical, &first, &last); err != nil {
 			return nil, nil, err
 		}
 		d.Known, d.Online, d.Critical = known != 0, online != 0, critical != 0
@@ -247,9 +249,9 @@ func (s *Store) InsertDevice(d *Device) error {
 		return err
 	}
 	defer tx.Rollback()
-	res, err := tx.Exec(`INSERT INTO devices (name, note, known, hostname, hostname_source, model, vendor, mac, ip, ipv6, iface, online, critical, first_seen, last_seen)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		d.Name, d.Note, b2i(d.Known), d.Hostname, d.HostnameSource, d.Model, d.Vendor, d.MAC, d.IP, strings.Join(d.IPv6, ","), d.Iface, b2i(d.Online), b2i(d.Critical), unix(d.FirstSeen), unix(d.LastSeen))
+	res, err := tx.Exec(`INSERT INTO devices (name, note, known, hostname, hostname_source, model, vendor, mac, ip, ipv6, dhcp_fp, iface, online, critical, first_seen, last_seen)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		d.Name, d.Note, b2i(d.Known), d.Hostname, d.HostnameSource, d.Model, d.Vendor, d.MAC, d.IP, strings.Join(d.IPv6, ","), d.DHCPFP, d.Iface, b2i(d.Online), b2i(d.Critical), unix(d.FirstSeen), unix(d.LastSeen))
 	if err != nil {
 		return err
 	}
@@ -264,8 +266,8 @@ func (s *Store) InsertDevice(d *Device) error {
 
 // UpdateDevice writes every mutable field of d.
 func (s *Store) UpdateDevice(d *Device) error {
-	_, err := s.db.Exec(`UPDATE devices SET name=?, note=?, known=?, hostname=?, hostname_source=?, model=?, vendor=?, mac=?, ip=?, ipv6=?, iface=?, online=?, critical=?, first_seen=?, last_seen=? WHERE id=?`,
-		d.Name, d.Note, b2i(d.Known), d.Hostname, d.HostnameSource, d.Model, d.Vendor, d.MAC, d.IP, strings.Join(d.IPv6, ","), d.Iface, b2i(d.Online), b2i(d.Critical), unix(d.FirstSeen), unix(d.LastSeen), d.ID)
+	_, err := s.db.Exec(`UPDATE devices SET name=?, note=?, known=?, hostname=?, hostname_source=?, model=?, vendor=?, mac=?, ip=?, ipv6=?, dhcp_fp=?, iface=?, online=?, critical=?, first_seen=?, last_seen=? WHERE id=?`,
+		d.Name, d.Note, b2i(d.Known), d.Hostname, d.HostnameSource, d.Model, d.Vendor, d.MAC, d.IP, strings.Join(d.IPv6, ","), d.DHCPFP, d.Iface, b2i(d.Online), b2i(d.Critical), unix(d.FirstSeen), unix(d.LastSeen), d.ID)
 	return err
 }
 
@@ -317,8 +319,8 @@ func (s *Store) Merge(src int64, dst *Device) error {
 	if _, err := tx.Exec(`DELETE FROM devices WHERE id=?`, src); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`UPDATE devices SET name=?, note=?, known=?, hostname=?, hostname_source=?, model=?, vendor=?, mac=?, ip=?, ipv6=?, iface=?, online=?, critical=?, first_seen=?, last_seen=? WHERE id=?`,
-		dst.Name, dst.Note, b2i(dst.Known), dst.Hostname, dst.HostnameSource, dst.Model, dst.Vendor, dst.MAC, dst.IP, strings.Join(dst.IPv6, ","), dst.Iface, b2i(dst.Online), b2i(dst.Critical), unix(dst.FirstSeen), unix(dst.LastSeen), dst.ID); err != nil {
+	if _, err := tx.Exec(`UPDATE devices SET name=?, note=?, known=?, hostname=?, hostname_source=?, model=?, vendor=?, mac=?, ip=?, ipv6=?, dhcp_fp=?, iface=?, online=?, critical=?, first_seen=?, last_seen=? WHERE id=?`,
+		dst.Name, dst.Note, b2i(dst.Known), dst.Hostname, dst.HostnameSource, dst.Model, dst.Vendor, dst.MAC, dst.IP, strings.Join(dst.IPv6, ","), dst.DHCPFP, dst.Iface, b2i(dst.Online), b2i(dst.Critical), unix(dst.FirstSeen), unix(dst.LastSeen), dst.ID); err != nil {
 		return err
 	}
 	// Two open sessions would overlap after a merge; close all but the latest.

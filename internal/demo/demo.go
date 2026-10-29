@@ -30,7 +30,7 @@ var hosts = []host{
 	{"24:0a:c4:56:78:08", "192.168.2.88", "eth0", "", "", "", false, 0},
 	{"00:bc:99:aa:00:09", "192.168.2.40", "eth0", "", "", "Linux/3.10 UPnP/1.0 Hikvision", false, 0},
 	{"00:0c:6e:10:20:0a", "192.168.2.50", "eth0", "DESKTOP-7Q2LM", passive.SrcNBNS, "", false, 0},
-	{"5a:1c:9e:44:55:0b", "192.168.2.52", "eth0", "Moms-iPhone", passive.SrcDHCP, "", true, 0},
+	{"5a:1c:9e:44:55:0b", "192.168.2.52", "eth0", "Moms-iPhone", passive.SrcDHCP, "", false, 0},
 	{"00:0d:4b:10:20:0c", "192.168.2.60", "eth0", "", "", "Linux/4.9 UPnP/1.0 Roku/11.5", false, 0},
 	{"e8:4e:06:00:11:0d", "10.0.0.2", "wlan0", "", "", "", false, 0},
 	{"7c:49:eb:0a:0b:0e", "10.0.0.15", "wlan0", "yeelink-light", passive.SrcDHCP, "", false, 0},
@@ -39,6 +39,10 @@ var hosts = []host{
 	{"94:e9:79:ab:cd:10", "192.168.2.77", "eth0", "android-4f2a9c", passive.SrcDHCP, "", false, 40 * time.Second},
 	{"2e:0f:7a:61:3b:11", "192.168.2.53", "eth0", "Moms-iPhone", passive.SrcDHCP, "", false, 70 * time.Second},
 }
+
+// leaves: hosts that drop off for good — Mom's phone rotates its MAC and
+// comes back as 2e:0f:7a:… at 70s.
+var leaves = map[string]time.Duration{"5a:1c:9e:44:55:0b": 65 * time.Second}
 
 // Scanner is a fake discovery engine.
 type Scanner struct {
@@ -91,7 +95,7 @@ func (s *Scanner) round(start time.Time, first bool) {
 	time.Sleep(800 * time.Millisecond)
 	counts := map[string]int{}
 	for _, h := range hosts {
-		if time.Since(start) < h.joinAfter {
+		if time.Since(start) < h.joinAfter || (leaves[h.mac] > 0 && time.Since(start) > leaves[h.mac]) {
 			continue
 		}
 		if h.flaky && !first && rand.IntN(4) == 0 {
@@ -103,6 +107,9 @@ func (s *Scanner) round(start time.Time, first bool) {
 			sg.Hostname, sg.HostnameSource = h.name, h.src
 		}
 		sg.Model = h.model
+		if h.name == "Moms-iPhone" {
+			sg.DHCPFingerprint = "1,121,3,6,15,108,114,119,252,95,44,46|"
+		}
 		s.onSighting(sg)
 		counts[h.iface]++
 	}

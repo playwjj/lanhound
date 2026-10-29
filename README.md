@@ -53,10 +53,15 @@ docker compose up -d
   what you need to tell friend from foe: name, vendor, IP, MAC, first-seen
   time. The first scan after install is a silent baseline, so you won't get
   30 messages in your first minute.
-- **Copes with randomized MACs.** Phones rotate their MAC per network. When a
-  "new" device announces the same hostname as one you already know,
-  LanHound says so in the alert and offers a one-click **merge** in the UI.
-  The merged device keeps every MAC and its full history.
+- **Copes with randomized MACs.** Phones rotate their MAC per network.
+  LanHound fingerprints each device (hostname, mDNS model, DHCP option
+  55/60 fingerprint) and, when a "new" MAC matches a device you already
+  know, says "probably X with a new random MAC" and offers a one-click
+  **merge**. Generic names like "iPhone" count only as weak evidence, and
+  two MACs online at the same time are never matched. A confident match
+  with a device you marked as known does not alert at all; it is only
+  noted in the alert log. The merged device keeps every MAC and its full
+  history.
 - **Keeps history.** Online/offline sessions and events (IP changes,
   hostname changes) per device, a 7-day presence timeline, a "usual
   hours" heat map per device and a network activity heat map (devices
@@ -260,9 +265,9 @@ isolated by the access point. Run another instance there.
 - **v0.1**: discovery engine, history, web UI, new-device alerts
 - **v0.2 (this)**: security alerts (ARP spoofing/conflicts, ARP floods,
   gateway MAC change, rogue DHCP), critical devices, alert log, CSV export
-- **Next**: router/modem device tables (OpenWrt, generic URL), IPv6
-  discovery, presence heat maps (done on main, next release);
-  randomized-MAC fingerprinting
+- **Next release** (done on main): router/modem device tables (OpenWrt,
+  generic URL), IPv6 discovery, presence heat maps, randomized-MAC
+  fingerprinting
 
 ## License
 

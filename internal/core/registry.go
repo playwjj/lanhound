@@ -48,10 +48,11 @@ type View struct {
 	store.Device
 	MACs       []string `json:"macs"`
 	Randomized bool     `json:"randomized"`
-	// SameNameAs points at an older device with the same hostname: most
-	// likely the same phone before it rotated its MAC. The UI offers a
-	// one-click merge.
-	SameNameAs int64 `json:"sameNameAs,omitempty"`
+	// SameAs points at an older device this one most likely is, under a
+	// new randomized MAC; SameAsWhy lists the evidence (hostname, model,
+	// dhcp). The UI offers a one-click merge.
+	SameAs    int64    `json:"sameAs,omitempty"`
+	SameAsWhy []string `json:"sameAsWhy,omitempty"`
 }
 
 // Patch is a user edit; nil fields are left alone.
@@ -271,6 +272,10 @@ func (r *Registry) observe(s passive.Sighting, quiet bool) {
 	if addIPv6(d, s.IP6) {
 		changed = true
 	}
+	if s.DHCPFingerprint != "" && s.DHCPFingerprint != d.DHCPFP {
+		d.DHCPFP = s.DHCPFingerprint
+		changed = true
+	}
 	if s.Model != "" && s.Model != d.Model && (d.Model == "" || s.Source == passive.SrcMDNS) {
 		d.Model = s.Model
 		changed = true
@@ -300,6 +305,7 @@ func (r *Registry) addDevice(s passive.Sighting, mac string, quiet bool) {
 	}
 	d.IPv6 = []string{}
 	addIPv6(d, s.IP6)
+	d.DHCPFP = s.DHCPFingerprint
 	if s.Hostname != "" {
 		d.Hostname, d.HostnameSource = s.Hostname, s.HostnameSource
 	}
@@ -506,6 +512,12 @@ func (r *Registry) sendDueAlerts(ctx context.Context) {
 		if !ok || d.Known { // merged, deleted or already acknowledged
 			continue
 		}
+		// One of ours under a new random MAC: log it, don't page anyone.
+		if m, ok := r.bestMatch(d); ok && m.Score >= RecognizeScore && r.devices[m.ID].Known {
+			info := r.info(d)
+			r.raise(notify.Message{Event: notify.EventRecognized, Interface: d.Iface, Devices: []notify.DeviceInfo{info, r.info(r.devices[m.ID])}}, d.ID)
+			continue
+		}
 		due = append(due, r.info(d))
 	}
 	r.mu.Unlock()
@@ -533,8 +545,8 @@ func (r *Registry) info(d *store.Device) notify.DeviceInfo {
 		ID: d.ID, Name: d.Name, Hostname: d.Hostname, Vendor: d.Vendor, Model: d.Model,
 		IP: d.IP, MAC: d.MAC, Interface: d.Iface, FirstSeen: d.FirstSeen, Randomized: v.Randomized,
 	}
-	if o, ok := r.devices[v.SameNameAs]; ok {
-		info.SameNameAs = firstNonEmpty(o.Name, o.Hostname)
+	if o, ok := r.devices[v.SameAs]; ok {
+		info.SameAs = firstNonEmpty(o.Name, o.Hostname)
 	}
 	return info
 }
@@ -542,19 +554,8 @@ func (r *Registry) info(d *store.Device) notify.DeviceInfo {
 // view builds the API representation. Caller holds r.mu.
 func (r *Registry) view(d *store.Device) View {
 	v := View{Device: *d, MACs: append([]string(nil), r.macs[d.ID]...), Randomized: randomized(d.MAC)}
-	if d.Hostname != "" {
-		var best *store.Device
-		for _, o := range r.devices {
-			if o.ID == d.ID || !strings.EqualFold(o.Hostname, d.Hostname) || !o.FirstSeen.Before(d.FirstSeen) {
-				continue
-			}
-			if best == nil || o.FirstSeen.Before(best.FirstSeen) {
-				best = o
-			}
-		}
-		if best != nil {
-			v.SameNameAs = best.ID
-		}
+	if m, ok := r.bestMatch(d); ok {
+		v.SameAs, v.SameAsWhy = m.ID, m.Reasons
 	}
 	return v
 }
@@ -683,6 +684,9 @@ func (r *Registry) Merge(src, dst int64) (View, error) {
 	}
 	if s.LastSeen.After(d.LastSeen) {
 		m.LastSeen, m.MAC, m.Vendor, m.IP, m.Iface = s.LastSeen, s.MAC, s.Vendor, s.IP, s.Iface
+		if s.DHCPFP != "" {
+			m.DHCPFP = s.DHCPFP
+		}
 	}
 	m.Online = d.Online || s.Online
 	if s.Hostname != "" && (m.Hostname == "" || passive.HostnamePriority(s.HostnameSource) > passive.HostnamePriority(m.HostnameSource)) {

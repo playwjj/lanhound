@@ -30,6 +30,10 @@ const (
 	// Devices marked critical.
 	EventDeviceOffline = "device_offline"
 	EventDeviceOnline  = "device_online"
+
+	// A new MAC recognized as a known device (randomized MAC). Logged,
+	// never sent: avoiding that noise is the point.
+	EventRecognized = "recognized"
 )
 
 // Category groups events for the per-category notification switches.
@@ -41,6 +45,8 @@ func Category(event string) string {
 		return "critical"
 	case EventTest:
 		return "test"
+	case EventRecognized:
+		return "info"
 	}
 	return "security"
 }
@@ -72,6 +78,8 @@ func (s Settings) Wants(event string) bool {
 		return s.NotifyCritical
 	case "security":
 		return s.NotifySecurity
+	case "info":
+		return false
 	}
 	return true
 }
@@ -91,7 +99,7 @@ type DeviceInfo struct {
 	Interface  string    `json:"interface"`
 	FirstSeen  time.Time `json:"firstSeen"`
 	Randomized bool      `json:"randomized"`
-	SameNameAs string    `json:"sameNameAs,omitempty"` // an existing device with the same hostname
+	SameAs     string    `json:"sameAs,omitempty"` // a known device this probably is, under a new random MAC
 }
 
 // Message is one alert. Which fields are set depends on Event:

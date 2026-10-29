@@ -23,7 +23,7 @@ function openFromAlert(id) {
   selectedId.value = id
 }
 const unread = computed(() => state.alerts.filter((a) => a.id > state.alertsSeen))
-const unreadSevere = computed(() => unread.value.some((a) => a.kind !== 'new_device' && a.kind !== 'device_online'))
+const unreadSevere = computed(() => unread.value.some((a) => !['new_device', 'device_online', 'recognized'].includes(a.kind)))
 
 const devices = computed(() => Object.values(state.devices))
 const counts = computed(() => ({

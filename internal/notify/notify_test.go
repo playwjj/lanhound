@@ -29,10 +29,10 @@ func TestRenderHTMLEscapes(t *testing.T) {
 func TestRenderChineseAndHints(t *testing.T) {
 	m := Message{Event: EventNewDevice}
 	for i := 0; i < 12; i++ {
-		m.Devices = append(m.Devices, DeviceInfo{MAC: "da:00:00:00:00:01", Randomized: true, SameNameAs: "妈妈的手机", FirstSeen: time.Now()})
+		m.Devices = append(m.Devices, DeviceInfo{MAC: "da:00:00:00:00:01", Randomized: true, SameAs: "妈妈的手机", FirstSeen: time.Now()})
 	}
 	got := Render(m, "zh", func(s string) string { return s }, "", "")
-	for _, want := range []string{"12 台新设备", "未知设备", "随机 MAC", "与“妈妈的手机”主机名相同", "另有 2 台"} {
+	for _, want := range []string{"12 台新设备", "未知设备", "随机 MAC", "很可能是“妈妈的手机”换了随机 MAC", "另有 2 台"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}

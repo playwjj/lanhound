@@ -71,12 +71,16 @@ func TestDecodeARP(t *testing.T) {
 }
 
 func TestDecodeDHCPRequestHostname(t *testing.T) {
-	msg := bootpMsg(1, devMAC, nil, opt(optMsgType, 3), opt(optHostname, []byte("Pixel-8\x00")...))
+	msg := bootpMsg(1, devMAC, nil, opt(optMsgType, 3), opt(optHostname, []byte("Pixel-8\x00")...),
+		opt(optParamList, 1, 3, 6, 15, 119, 252), opt(optVendorClass, []byte("android-dhcp-14")...))
 	got := Decode(udpFrame(devMAC, net.IPv4zero, 68, 67, msg))
 	if len(got) != 1 {
 		t.Fatalf("want 1 sighting, got %d", len(got))
 	}
 	s := got[0]
+	if s.DHCPFingerprint != "1,3,6,15,119,252|android-dhcp-14" {
+		t.Fatalf("fingerprint %q", s.DHCPFingerprint)
+	}
 	if s.Hostname != "Pixel-8" || s.HostnameSource != SrcDHCP || s.IP != nil || s.MAC.String() != devMAC.String() {
 		t.Fatalf("got %+v", s)
 	}

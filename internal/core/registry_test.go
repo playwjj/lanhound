@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -197,12 +198,12 @@ func TestSameNameHintAndMerge(t *testing.T) {
 			nu = v
 		}
 	}
-	if !nu.Randomized || nu.SameNameAs != old {
+	if !nu.Randomized || nu.SameAs != old {
 		t.Fatalf("new device %+v", nu)
 	}
 	h.clk.Add(time.Minute)
 	got := h.alerts(t)
-	if len(got) != 1 || got[0].Devices[0].SameNameAs != "Mom's phone" {
+	if len(got) != 1 || got[0].Devices[0].SameAs != "Mom's phone" {
 		t.Fatalf("alert should carry the same-name hint: %+v", got)
 	}
 
@@ -495,5 +496,85 @@ func TestIPv6Addresses(t *testing.T) {
 	devs, _, _ := h.st.Devices()
 	if len(devs[0].IPv6) != maxIPv6 {
 		t.Fatalf("ipv6 not persisted: %v", devs[0].IPv6)
+	}
+}
+
+func fp(name, model, dhcp string) func(*passive.Sighting) {
+	return func(s *passive.Sighting) {
+		s.Hostname, s.HostnameSource, s.Model, s.DHCPFingerprint = name, passive.SrcDHCP, model, dhcp
+	}
+}
+
+const iosFP = "1,121,3,6,15,108,114,119,252,95,44,46|"
+
+func TestFingerprintRecognizesKnownPhone(t *testing.T) {
+	h := newHarness(t, "")
+	h.r.Observe(sight("5a:1c:9e:44:55:0b", "192.168.2.52", fp("Moms-iPhone", "", iosFP)))
+	mom := h.r.Devices()[0].ID
+	known := true
+	_, _ = h.r.Update(mom, Patch{Known: &known})
+	h.r.EndBaseline()
+
+	h.clk.Add(30 * time.Minute) // the old MAC went quiet; a new one appears
+	h.r.Observe(sight("2e:0f:7a:61:3b:11", "192.168.2.53", fp("Moms-iPhone", "", iosFP)))
+	h.clk.Add(time.Minute)
+	h.r.sendDueAlerts(context.Background())
+	time.Sleep(50 * time.Millisecond)
+	h.mu.Lock()
+	sent := len(h.sent)
+	h.mu.Unlock()
+	if sent != 0 {
+		t.Fatal("a recognized phone must not page anyone")
+	}
+	log, _ := h.r.Alerts(5)
+	if len(log) != 1 || log[0].Kind != notify.EventRecognized || log[0].DeviceID == mom {
+		t.Fatalf("want a recognized entry in the log, got %+v", log)
+	}
+	var nu View
+	for _, v := range h.r.Devices() {
+		if v.ID != mom {
+			nu = v
+		}
+	}
+	if nu.SameAs != mom || strings.Join(nu.SameAsWhy, ",") != "dhcp,hostname" {
+		t.Fatalf("hint %+v", nu)
+	}
+}
+
+func TestFingerprintGenericNamesNeedMoreEvidence(t *testing.T) {
+	h := newHarness(t, "")
+	h.r.Observe(sight("5a:00:00:00:00:01", "192.168.2.60", fp("iPhone", "", "")))
+	h.r.EndBaseline()
+	h.clk.Add(time.Hour)
+	// Another family member's iPhone: same generic name only.
+	h.r.Observe(sight("5a:00:00:00:00:02", "192.168.2.61", fp("iPhone", "", "")))
+	for _, v := range h.r.Devices() {
+		if v.SameAs != 0 {
+			t.Fatalf("generic hostname alone must not suggest a match: %+v", v)
+		}
+	}
+	// Same generic name + same model + same DHCP fingerprint: worth a hint.
+	h.clk.Add(time.Hour)
+	h.r.Observe(sight("5a:00:00:00:00:03", "192.168.2.62", fp("iPhone", "iPhone15,2", iosFP)))
+	h.r.mu.Lock()
+	first := h.r.devices[h.r.byMAC["5a:00:00:00:00:01"]]
+	first.Model, first.DHCPFP = "iPhone15,2", iosFP
+	h.r.mu.Unlock()
+	v, _ := h.r.Device(h.r.byMAC["5a:00:00:00:00:03"])
+	if v.SameAs != first.ID || v.SameAsWhy[0] != "dhcp" {
+		t.Fatalf("want a hint for generic+model+dhcp, got %+v", v)
+	}
+}
+
+func TestFingerprintSkipsConcurrentDevices(t *testing.T) {
+	h := newHarness(t, "")
+	h.r.Observe(sight("5a:00:00:00:00:01", "192.168.2.60", fp("Kids-iPad", "", iosFP)))
+	h.clk.Add(time.Hour)
+	h.r.Observe(sight("5a:00:00:00:00:02", "192.168.2.61", fp("Kids-iPad", "", iosFP)))
+	h.clk.Add(5 * time.Minute)
+	h.r.Observe(sight("5a:00:00:00:00:01", "192.168.2.60")) // the first one is still around
+	v, _ := h.r.Device(h.r.byMAC["5a:00:00:00:00:02"])
+	if v.SameAs != 0 {
+		t.Fatalf("two devices online at once are not one device: %+v", v)
 	}
 }

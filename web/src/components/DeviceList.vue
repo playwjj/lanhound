@@ -1,7 +1,7 @@
 <script setup>
 import { api } from '../api'
 import { now, state, upsert } from '../state'
-import { t } from '../i18n'
+import { t, locale } from '../i18n'
 import { ago, dateTime, displayName } from '../format'
 import Icon from './Icon.vue'
 import InlineName from './InlineName.vue'
@@ -11,6 +11,10 @@ const emit = defineEmits(['select'])
 
 async function toggleKnown(d) {
   upsert(await api.patch(d.id, { known: !d.known }))
+}
+
+function whyText(d) {
+  return (d.sameAsWhy || []).map((w) => t('why_' + w)).join(locale.value === 'zh' ? '、' : ', ')
 }
 
 function subtitle(d) {
@@ -48,7 +52,7 @@ function subtitle(d) {
           <InlineName :device="d" />
           <span v-if="!d.known" class="badge new">{{ t('new') }}</span>
           <span v-if="d.critical" class="badge crit" :title="t('criticalHelp')">{{ t('criticalBadge') }}</span>
-          <span v-if="d.sameNameAs && state.devices[d.sameNameAs]" class="badge random same" :title="t('sameName', { name: state.devices[d.sameNameAs].name || state.devices[d.sameNameAs].hostname })">
+          <span v-if="d.sameAs && state.devices[d.sameAs]" class="badge random same" :title="t('sameName', { name: state.devices[d.sameAs].name || state.devices[d.sameAs].hostname || state.devices[d.sameAs].mac, why: whyText(d) })">
             <Icon name="merge" :size="11" />{{ t('sameNameBadge') }}
           </span>
         </span>

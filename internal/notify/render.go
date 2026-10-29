@@ -36,7 +36,7 @@ var texts = map[string]map[string]string{
 		"first":      "First seen",
 		"random":     "randomized MAC",
 		"unknown":    "Unknown device",
-		"same":       "Same hostname as “%s” — probably a new random MAC of it.",
+		"same":       "Probably “%s” with a new random MAC.",
 		"more":       "…and %d more",
 		"timeLayout": "2006-01-02 15:04",
 	},
@@ -66,7 +66,7 @@ var texts = map[string]map[string]string{
 		"first":      "首次出现",
 		"random":     "随机 MAC",
 		"unknown":    "未知设备",
-		"same":       "与“%s”主机名相同——很可能是它换了随机 MAC。",
+		"same":       "很可能是“%s”换了随机 MAC。",
 		"more":       "……另有 %d 台",
 		"timeLayout": "2006-01-02 15:04",
 	},
@@ -205,8 +205,8 @@ func (r *renderer) newDevices(m Message) {
 		b.WriteString(tr(lang, "mac") + ": " + mac + "\n")
 		b.WriteString(tr(lang, "iface") + ": " + esc(d.Interface) + "\n")
 		b.WriteString(tr(lang, "first") + ": " + d.FirstSeen.Format(tr(lang, "timeLayout")) + "\n")
-		if d.SameNameAs != "" {
-			b.WriteString("⚠️ " + fmt.Sprintf(tr(lang, "same"), esc(d.SameNameAs)) + "\n")
+		if d.SameAs != "" {
+			b.WriteString("⚠️ " + fmt.Sprintf(tr(lang, "same"), esc(d.SameAs)) + "\n")
 		}
 	}
 }

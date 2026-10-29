@@ -55,6 +55,8 @@ function describe(a) {
       return { title: t('al_gateway_changed', { ip: m.ip }), text: t('al_gateway_changed_tx'), labels: [t('was'), t('now')] }
     case 'rogue_dhcp':
       return { title: t('al_rogue_dhcp', { iface: m.interface }), text: t('al_rogue_dhcp_tx', { trusted: (m.trusted || []).join(', ') || '—' }) }
+    case 'recognized':
+      return { title: t('al_recognized', { name: devName(m.devices?.[1] ?? d0) }), text: t('al_recognized_tx') }
     case 'device_offline':
       return { title: t('al_device_offline', { name: devName(d0) }) }
     case 'device_online':
@@ -163,6 +165,9 @@ header {
 }
 .alert.new_device {
   border-left-color: var(--amber);
+}
+.alert.recognized {
+  border-left-color: var(--muted);
 }
 .alert.device_online {
   border-left-color: var(--ok);

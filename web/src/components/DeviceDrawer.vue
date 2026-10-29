@@ -48,7 +48,8 @@ function onKey(e) {
 onMounted(() => window.addEventListener('keydown', onKey))
 onUnmounted(() => window.removeEventListener('keydown', onKey))
 
-const similar = computed(() => (props.device.sameNameAs ? state.devices[props.device.sameNameAs] : null))
+const similar = computed(() => (props.device.sameAs ? state.devices[props.device.sameAs] : null))
+const why = computed(() => (props.device.sameAsWhy || []).map((w) => t('why_' + w)).join(locale.value === 'zh' ? '、' : ', '))
 const others = computed(() =>
   Object.values(state.devices)
     .filter((d) => d.id !== props.device.id)
@@ -169,7 +170,7 @@ const days = computed(() => {
     <div class="d-body">
       <div v-if="similar" class="banner warn">
         <Icon name="merge" />
-        <span class="grow">{{ t('sameName', { name: displayName(similar) || similar.mac }) }}</span>
+        <span class="grow">{{ t('sameName', { name: displayName(similar) || similar.mac, why }) }}</span>
         <button class="btn small" :disabled="busy" @click="merge(similar.id)">{{ t('mergeInto') }}</button>
       </div>
       <p v-if="error" class="error">{{ error }}</p>
@@ -210,6 +211,10 @@ const days = computed(() => {
         </template>
         <dt>{{ t('vendor') }}</dt>
         <dd>{{ device.vendor || '—' }}</dd>
+        <template v-if="device.dhcpFingerprint">
+          <dt>{{ t('dhcpFingerprint') }}</dt>
+          <dd class="mono small">{{ device.dhcpFingerprint }}</dd>
+        </template>
         <dt>{{ t('interface') }}</dt>
         <dd>{{ device.interface || '—' }}</dd>
         <dt>{{ t('macs') }}</dt>
