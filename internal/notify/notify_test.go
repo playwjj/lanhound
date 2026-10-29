@@ -117,3 +117,25 @@ func TestWants(t *testing.T) {
 		t.Fatal("category switches wrong")
 	}
 }
+
+func TestDescribeEveryEvent(t *testing.T) {
+	plain := func(s string) string { return s }
+	dev := DeviceInfo{MAC: "da:00:00:00:00:51", Hostname: "Moms-iPhone"}
+	for _, ev := range []string{EventNewDevice, EventARPConflict, EventARPFlood, EventGatewayChanged, EventRogueDHCP,
+		EventDeviceOffline, EventDeviceOnline, EventRecognized, EventTest} {
+		for _, lang := range []string{"en", "zh"} {
+			m := Message{Event: ev, IP: "192.168.2.1", Interface: "eth0", Devices: []DeviceInfo{dev, dev}, Count: 20, Seconds: 600}
+			p := Describe(m, lang, plain)
+			if p.Title == "" || p.Title == ev {
+				t.Errorf("%s/%s: no title", ev, lang)
+			}
+			if Render(m, lang, plain, "", "") == "" {
+				t.Errorf("%s/%s: empty rendered message", ev, lang)
+			}
+		}
+	}
+	p := Describe(Message{Event: EventRecognized, Devices: []DeviceInfo{{MAC: "da:00:00:00:00:51"}, {Name: "Mom's phone"}}}, "en", plain)
+	if !strings.Contains(p.Title, "Mom's phone") || len(p.Labels) != 2 {
+		t.Fatalf("recognized: %+v", p)
+	}
+}

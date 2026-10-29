@@ -30,39 +30,10 @@ function devName(d) {
   return (live && (live.name || live.hostname)) || d.name || d.hostname || d.model || t('unnamed')
 }
 
-function minutes(sec) {
-  const [mi, hr, dy] = locale.value === 'zh' ? ['分钟', '小时', '天'] : [' min', ' h', ' d']
-  const m = Math.round(sec / 60)
-  if (m < 60) return `${m}${mi}`
-  const h = Math.floor(m / 60)
-  return h < 48 ? `${h}${hr} ${m % 60}${mi}` : `${Math.floor(h / 24)}${dy}`
-}
-
-// title + optional explanation for one alert
-function describe(a) {
-  const m = a.data
-  const d0 = m.devices?.[0] ?? {}
-  switch (a.kind) {
-    case 'new_device':
-      return {
-        title: m.devices.length === 1 ? `${t('al_new_device')}: ${devName(d0)}` : t('al_new_devices', { n: m.devices.length }),
-      }
-    case 'arp_conflict':
-      return { title: t(m.gateway ? 'al_arp_conflict_gw' : 'al_arp_conflict', { ip: m.ip }), text: t('al_arp_conflict_tx') }
-    case 'arp_flood':
-      return { title: t('al_arp_flood', { name: devName(d0) }), text: t('al_arp_flood_tx', { count: m.count, s: m.seconds }) }
-    case 'gateway_changed':
-      return { title: t('al_gateway_changed', { ip: m.ip }), text: t('al_gateway_changed_tx'), labels: [t('was'), t('now')] }
-    case 'rogue_dhcp':
-      return { title: t('al_rogue_dhcp', { iface: m.interface }), text: t('al_rogue_dhcp_tx', { trusted: (m.trusted || []).join(', ') || '—' }) }
-    case 'recognized':
-      return { title: t('al_recognized', { name: devName(m.devices?.[1] ?? d0) }), text: t('al_recognized_tx') }
-    case 'device_offline':
-      return { title: t('al_device_offline', { name: devName(d0) }) }
-    case 'device_online':
-      return { title: t('al_device_online', { name: devName(d0) }), text: m.seconds ? t('al_away', { d: minutes(m.seconds) }) : '' }
-  }
-  return { title: a.kind }
+// Wording comes from the server (one source for Telegram, webhooks,
+// Home Assistant and this panel), in the UI's language.
+function text(a) {
+  return a.text?.[locale.value] ?? a.text?.en ?? { title: a.kind }
 }
 
 async function trust(a) {
@@ -90,13 +61,14 @@ async function trust(a) {
       <p v-if="!state.alerts.length" class="muted empty">{{ t('noAlerts') }}</p>
       <article v-for="a in state.alerts" :key="a.id" class="alert" :class="[a.kind, { severe: SEVERE.has(a.kind) }]">
         <div class="a-head">
-          <span class="a-title">{{ describe(a).title }}</span>
+          <span class="a-title">{{ text(a).title }}</span>
           <span class="muted small" :title="dateTime(a.at)">{{ ago(a.at, now) }}</span>
         </div>
-        <p v-if="describe(a).text" class="a-text">{{ describe(a).text }}</p>
+        <p v-for="(l, i) in text(a).lines" :key="'l' + i" class="a-line">{{ l }}</p>
+        <p v-if="text(a).note" class="a-text">{{ text(a).note }}</p>
         <ul class="devs">
           <li v-for="(d, i) in a.data.devices" :key="i">
-            <span v-if="describe(a).labels" class="muted small">{{ describe(a).labels[i] }}:</span>
+            <span v-if="text(a).labels?.[i]" class="muted small">{{ text(a).labels[i] }}:</span>
             <button v-if="d.id && state.devices[d.id]" class="link" @click="emit('select', d.id)">{{ devName(d) }}</button>
             <span v-else>{{ devName(d) }}</span>
             <span class="mono muted">{{ d.mac }}</span>
@@ -180,6 +152,10 @@ header {
 }
 .a-title {
   font-weight: 600;
+}
+.a-line {
+  margin: 4px 0 0;
+  font-size: 13px;
 }
 .a-text {
   margin: 4px 0 0;

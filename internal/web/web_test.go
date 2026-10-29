@@ -260,9 +260,9 @@ func TestAlertsAPI(t *testing.T) {
 	reg.RaiseFinding(security.Finding{Event: notify.EventRogueDHCP, Interface: "eth0", IP: net.IPv4(192, 168, 8, 1), MACs: []net.HardwareAddr{rogue}, Key: "192.168.8.1/e4:95:6e:40:11:22"})
 	reg.RaiseFinding(security.Finding{Event: notify.EventARPFlood, Interface: "eth0", MACs: []net.HardwareAddr{rogue}, Count: 20})
 
-	var list []store.Alert
+	var list []core.AlertView
 	_ = json.NewDecoder(do(t, "GET", ts.URL+"/api/alerts", "", nil).Body).Decode(&list)
-	if len(list) != 2 || list[0].Kind != notify.EventARPFlood {
+	if len(list) != 2 || list[0].Kind != notify.EventARPFlood || list[1].Text["en"].Title == "" || list[1].Text["zh"].Labels[0] != "服务器" {
 		t.Fatalf("alerts %+v", list)
 	}
 	if r := do(t, "POST", ts.URL+"/api/alerts/"+itoa(list[0].ID)+"/trust", "", csrf); r.StatusCode != 400 {

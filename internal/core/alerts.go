@@ -16,6 +16,28 @@ import (
 // a flaky DNS server or a router reboot should not swallow an alert.
 var retryDelays = []time.Duration{0, 30 * time.Second, 2 * time.Minute, 10 * time.Minute}
 
+// AlertView is a logged alert plus its wording in every UI language,
+// so the UI never re-implements alert texts.
+type AlertView struct {
+	store.Alert
+	Text map[string]notify.Parts `json:"text"`
+}
+
+// Languages the UI offers.
+var uiLanguages = []string{"en", "zh"}
+
+func alertView(a store.Alert) AlertView {
+	v := AlertView{Alert: a, Text: map[string]notify.Parts{}}
+	var m notify.Message
+	if json.Unmarshal(a.Data, &m) == nil {
+		plain := func(s string) string { return s }
+		for _, l := range uiLanguages {
+			v.Text[l] = notify.Describe(m, l, plain)
+		}
+	}
+	return v
+}
+
 // raise records an alert in the log, shows it in the UI and delivers it
 // to the configured channels. It never takes r.mu itself, so callers may
 // hold it.
@@ -25,7 +47,7 @@ func (r *Registry) raise(m notify.Message, deviceID int64) {
 	if err := r.o.Store.AddAlert(a); err != nil {
 		log.Printf("alerts: store: %v", err)
 	}
-	r.o.Hub.Publish("alert", a)
+	r.o.Hub.Publish("alert", alertView(*a))
 	log.Printf("alert: %s %s", m.Event, m.IP)
 	go r.deliver(m)
 }
@@ -107,8 +129,18 @@ func (r *Registry) RaiseFinding(f security.Finding) {
 	r.raise(m, deviceID)
 }
 
-// Alerts returns the most recent alerts, newest first.
-func (r *Registry) Alerts(limit int) ([]store.Alert, error) { return r.o.Store.Alerts(limit) }
+// Alerts returns the most recent alerts, newest first, with their wording.
+func (r *Registry) Alerts(limit int) ([]AlertView, error) {
+	list, err := r.o.Store.Alerts(limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]AlertView, len(list))
+	for i, a := range list {
+		out[i] = alertView(a)
+	}
+	return out, nil
+}
 
 // Alert returns one logged alert and its decoded message.
 func (r *Registry) Alert(id int64) (store.Alert, notify.Message, error) {

@@ -321,6 +321,9 @@ func TestCriticalDeviceAlerts(t *testing.T) {
 	if len(log) != 2 || log[0].Kind != notify.EventDeviceOnline || log[0].DeviceID != id {
 		t.Fatalf("alert log %+v", log)
 	}
+	if !strings.Contains(log[0].Text["zh"].Title, "DiskStation 恢复在线") || log[0].Text["en"].Lines[0] != "Offline for 2h11m" {
+		t.Fatalf("alert wording %+v", log[0].Text)
+	}
 }
 
 func TestRaiseFindingNamesDevices(t *testing.T) {

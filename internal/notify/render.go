@@ -11,64 +11,72 @@ const maxListed = 10
 
 var texts = map[string]map[string]string{
 	"en": {
-		"new1":       "🐕 New device on your network",
-		"newN":       "🐕 %d new devices on your network",
-		"test":       "🐕 LanHound test message — notifications work.",
-		"conflict":   "🚨 IP address conflict: %s",
-		"conflictGw": "🚨 Possible ARP spoofing of your gateway %s",
-		"conflictTx": "Two devices are claiming the same IP address at the same time. If one of them is your gateway, someone may be intercepting traffic (ARP spoofing). A Wi-Fi extender that clones client MACs can also cause this.",
-		"flood":      "⚠️ ARP flood from one device",
-		"floodTx":    "%d unsolicited ARP packets in %ds. Normal devices send a handful; tools that poison ARP caches send many.",
-		"gateway":    "⚠️ Gateway %s answers from a new MAC",
-		"gatewayTx":  "Expected if you replaced or reset the router. Otherwise check who now holds this address.",
-		"was":        "Before",
-		"now":        "Now",
-		"dhcp":       "⚠️ Unexpected DHCP server on %s",
-		"dhcpTx":     "Another device is handing out IP addresses. Clients that take its offer get its gateway and DNS. Often a bypass router (旁路由) or travel router with DHCP left on.",
-		"server":     "Server",
-		"trusted":    "Known server(s)",
-		"offline":    "🔴 %s went offline",
-		"online":     "🟢 %s is back online",
-		"gone":       "Offline for %s",
-		"ip":         "IP",
-		"mac":        "MAC",
-		"iface":      "Interface",
-		"first":      "First seen",
-		"random":     "randomized MAC",
-		"unknown":    "Unknown device",
-		"same":       "Probably “%s” with a new random MAC.",
-		"more":       "…and %d more",
-		"timeLayout": "2006-01-02 15:04",
+		"new1":         "🐕 New device on your network",
+		"newN":         "🐕 %d new devices on your network",
+		"test":         "🐕 LanHound test message — notifications work.",
+		"conflict":     "🚨 IP address conflict: %s",
+		"conflictGw":   "🚨 Possible ARP spoofing of your gateway %s",
+		"conflictTx":   "Two devices are claiming the same IP address at the same time. If one of them is your gateway, someone may be intercepting traffic (ARP spoofing). A Wi-Fi extender that clones client MACs can also cause this.",
+		"flood":        "⚠️ ARP flood from one device",
+		"floodTx":      "%d unsolicited ARP packets in %ds. Normal devices send a handful; tools that poison ARP caches send many.",
+		"gateway":      "⚠️ Gateway %s answers from a new MAC",
+		"gatewayTx":    "Expected if you replaced or reset the router. Otherwise check who now holds this address.",
+		"was":          "Before",
+		"now":          "Now",
+		"dhcp":         "⚠️ Unexpected DHCP server on %s",
+		"dhcpTx":       "Another device is handing out IP addresses. Clients that take its offer get its gateway and DNS. Often a bypass router (旁路由) or travel router with DHCP left on.",
+		"server":       "Server",
+		"trusted":      "Known server(s)",
+		"offline":      "🔴 %s went offline",
+		"online":       "🟢 %s is back online",
+		"gone":         "Offline for %s",
+		"recognized":   "🔁 %s is back with a new random MAC",
+		"recognizedTx": "Recognized from its hostname / model / DHCP fingerprint, so no new-device alert. Merge the two in the device panel to keep one history.",
+		"newMAC":       "New MAC",
+		"knownAs":      "Known as",
+		"ip":           "IP",
+		"mac":          "MAC",
+		"iface":        "Interface",
+		"first":        "First seen",
+		"random":       "randomized MAC",
+		"unknown":      "Unknown device",
+		"same":         "Probably “%s” with a new random MAC.",
+		"more":         "…and %d more",
+		"timeLayout":   "2006-01-02 15:04",
 	},
 	"zh": {
-		"new1":       "🐕 网络中出现新设备",
-		"newN":       "🐕 网络中出现 %d 台新设备",
-		"test":       "🐕 LanHound 测试消息——通知配置正常。",
-		"conflict":   "🚨 IP 地址冲突：%s",
-		"conflictGw": "🚨 网关 %s 疑似遭到 ARP 欺骗",
-		"conflictTx": "两台设备同时声称拥有同一个 IP。如果其中一台是网关，可能有人在劫持流量（ARP 欺骗）；会克隆客户端 MAC 的 Wi-Fi 中继器也可能导致这种情况。",
-		"flood":      "⚠️ 某设备在大量发送 ARP",
-		"floodTx":    "%d 个未经请求的 ARP 包，用时 %d 秒。正常设备只会发几个，ARP 投毒工具会发大量。",
-		"gateway":    "⚠️ 网关 %s 的 MAC 变了",
-		"gatewayTx":  "如果刚换过或重置过路由器，属于正常；否则请查清现在是谁占着这个地址。",
-		"was":        "之前",
-		"now":        "现在",
-		"dhcp":       "⚠️ %s 上出现了意外的 DHCP 服务器",
-		"dhcpTx":     "有另一台设备在分配 IP。接受它分配的设备会用它指定的网关和 DNS。常见原因是旁路由或随身路由器没关 DHCP。",
-		"server":     "服务器",
-		"trusted":    "已知服务器",
-		"offline":    "🔴 %s 离线了",
-		"online":     "🟢 %s 恢复在线",
-		"gone":       "离线时长 %s",
-		"ip":         "IP",
-		"mac":        "MAC",
-		"iface":      "接口",
-		"first":      "首次出现",
-		"random":     "随机 MAC",
-		"unknown":    "未知设备",
-		"same":       "很可能是“%s”换了随机 MAC。",
-		"more":       "……另有 %d 台",
-		"timeLayout": "2006-01-02 15:04",
+		"new1":         "🐕 网络中出现新设备",
+		"newN":         "🐕 网络中出现 %d 台新设备",
+		"test":         "🐕 LanHound 测试消息——通知配置正常。",
+		"conflict":     "🚨 IP 地址冲突：%s",
+		"conflictGw":   "🚨 网关 %s 疑似遭到 ARP 欺骗",
+		"conflictTx":   "两台设备同时声称拥有同一个 IP。如果其中一台是网关，可能有人在劫持流量（ARP 欺骗）；会克隆客户端 MAC 的 Wi-Fi 中继器也可能导致这种情况。",
+		"flood":        "⚠️ 某设备在大量发送 ARP",
+		"floodTx":      "%d 个未经请求的 ARP 包，用时 %d 秒。正常设备只会发几个，ARP 投毒工具会发大量。",
+		"gateway":      "⚠️ 网关 %s 的 MAC 变了",
+		"gatewayTx":    "如果刚换过或重置过路由器，属于正常；否则请查清现在是谁占着这个地址。",
+		"was":          "之前",
+		"now":          "现在",
+		"dhcp":         "⚠️ %s 上出现了意外的 DHCP 服务器",
+		"dhcpTx":       "有另一台设备在分配 IP。接受它分配的设备会用它指定的网关和 DNS。常见原因是旁路由或随身路由器没关 DHCP。",
+		"server":       "服务器",
+		"trusted":      "已知服务器",
+		"offline":      "🔴 %s 离线了",
+		"online":       "🟢 %s 恢复在线",
+		"gone":         "离线时长 %s",
+		"recognized":   "🔁 %s 换了个随机 MAC 回来了",
+		"recognizedTx": "根据主机名 / 型号 / DHCP 指纹识别出来，所以没有按新设备报警。可在设备详情里合并，保留一份历史。",
+		"newMAC":       "新 MAC",
+		"knownAs":      "原设备",
+		"ip":           "IP",
+		"mac":          "MAC",
+		"iface":        "接口",
+		"first":        "首次出现",
+		"random":       "随机 MAC",
+		"unknown":      "未知设备",
+		"same":         "很可能是“%s”换了随机 MAC。",
+		"more":         "……另有 %d 台",
+		"timeLayout":   "2006-01-02 15:04",
 	},
 }
 
@@ -77,6 +85,65 @@ func tr(lang, key string) string {
 		return t[key]
 	}
 	return texts["en"][key]
+}
+
+// Parts is an alert's wording, the single source for every place that
+// shows it: Telegram and webhook messages are assembled from it, and the
+// web UI and Home Assistant use it as is.
+type Parts struct {
+	Title  string   `json:"title"`
+	Labels []string `json:"labels,omitempty"` // per device, e.g. Before / Now
+	Lines  []string `json:"lines,omitempty"`  // facts: known servers, time offline
+	Note   string   `json:"note,omitempty"`   // what it means / what to do
+}
+
+// Describe words m in lang. esc escapes device-supplied strings.
+func Describe(m Message, lang string, esc func(string) string) Parts {
+	var d0 DeviceInfo
+	if len(m.Devices) > 0 {
+		d0 = m.Devices[0]
+	}
+	name := func(d DeviceInfo) string { return esc(firstNonEmpty(d.Name, d.Hostname, d.Model, tr(lang, "unknown"))) }
+	switch m.Event {
+	case EventTest:
+		return Parts{Title: tr(lang, "test")}
+	case EventNewDevice:
+		if len(m.Devices) == 1 {
+			return Parts{Title: tr(lang, "new1")}
+		}
+		return Parts{Title: fmt.Sprintf(tr(lang, "newN"), len(m.Devices))}
+	case EventARPConflict:
+		key := "conflict"
+		if m.Gateway {
+			key = "conflictGw"
+		}
+		return Parts{Title: fmt.Sprintf(tr(lang, key), esc(m.IP)), Note: tr(lang, "conflictTx")}
+	case EventARPFlood:
+		return Parts{Title: tr(lang, "flood"), Note: fmt.Sprintf(tr(lang, "floodTx"), m.Count, m.Seconds)}
+	case EventGatewayChanged:
+		return Parts{Title: fmt.Sprintf(tr(lang, "gateway"), esc(m.IP)), Labels: []string{tr(lang, "was"), tr(lang, "now")}, Note: tr(lang, "gatewayTx")}
+	case EventRogueDHCP:
+		p := Parts{Title: fmt.Sprintf(tr(lang, "dhcp"), esc(m.Interface)), Labels: []string{tr(lang, "server")}, Note: tr(lang, "dhcpTx")}
+		if len(m.Trusted) > 0 {
+			p.Lines = []string{tr(lang, "trusted") + ": " + esc(strings.Join(m.Trusted, ", "))}
+		}
+		return p
+	case EventDeviceOffline:
+		return Parts{Title: fmt.Sprintf(tr(lang, "offline"), name(d0))}
+	case EventDeviceOnline:
+		p := Parts{Title: fmt.Sprintf(tr(lang, "online"), name(d0))}
+		if m.Seconds > 0 {
+			p.Lines = []string{fmt.Sprintf(tr(lang, "gone"), humanDuration(time.Duration(m.Seconds)*time.Second, lang))}
+		}
+		return p
+	case EventRecognized:
+		known := d0
+		if len(m.Devices) > 1 {
+			known = m.Devices[1]
+		}
+		return Parts{Title: fmt.Sprintf(tr(lang, "recognized"), name(known)), Labels: []string{tr(lang, "newMAC"), tr(lang, "knownAs")}, Note: tr(lang, "recognizedTx")}
+	}
+	return Parts{Title: esc(m.Event)}
 }
 
 // Render formats m as text. esc escapes device-supplied strings and
@@ -88,58 +155,22 @@ func Render(m Message, lang string, esc func(string) string, bold, unbold string
 	case EventTest:
 		return tr(lang, "test")
 	case EventNewDevice:
-		r.newDevices(m)
-	case EventARPConflict:
-		key := "conflict"
-		if m.Gateway {
-			key = "conflictGw"
+		r.newDevices(m) // the detailed per-device form
+		return strings.TrimRight(r.b.String(), "\n")
+	}
+	p := Describe(m, lang, esc)
+	r.title(p.Title)
+	for i, d := range m.Devices {
+		if i < len(p.Labels) {
+			r.b.WriteString(p.Labels[i] + ": ")
 		}
-		r.title(fmt.Sprintf(tr(lang, key), esc(m.IP)))
-		for _, d := range m.Devices {
-			r.deviceLine(d)
-		}
-		r.para(tr(lang, "conflictTx"))
-	case EventARPFlood:
-		r.title(tr(lang, "flood"))
-		for _, d := range m.Devices {
-			r.deviceLine(d)
-		}
-		r.para(fmt.Sprintf(tr(lang, "floodTx"), m.Count, m.Seconds))
-	case EventGatewayChanged:
-		r.title(fmt.Sprintf(tr(lang, "gateway"), esc(m.IP)))
-		for i, d := range m.Devices {
-			label := tr(lang, "was")
-			if i > 0 {
-				label = tr(lang, "now")
-			}
-			r.b.WriteString(label + ": ")
-			r.deviceLine(d)
-		}
-		r.para(tr(lang, "gatewayTx"))
-	case EventRogueDHCP:
-		r.title(fmt.Sprintf(tr(lang, "dhcp"), esc(m.Interface)))
-		r.b.WriteString(tr(lang, "server") + ": ")
-		for _, d := range m.Devices {
-			r.deviceLine(d)
-		}
-		if len(m.Trusted) > 0 {
-			r.b.WriteString(tr(lang, "trusted") + ": " + esc(strings.Join(m.Trusted, ", ")) + "\n")
-		}
-		r.para(tr(lang, "dhcpTx"))
-	case EventDeviceOffline, EventDeviceOnline:
-		key := "offline"
-		if m.Event == EventDeviceOnline {
-			key = "online"
-		}
-		var d DeviceInfo
-		if len(m.Devices) > 0 {
-			d = m.Devices[0]
-		}
-		r.title(fmt.Sprintf(tr(lang, key), esc(r.name(d))))
 		r.deviceLine(d)
-		if m.Event == EventDeviceOnline && m.Seconds > 0 {
-			r.b.WriteString(fmt.Sprintf(tr(lang, "gone"), humanDuration(time.Duration(m.Seconds)*time.Second, lang)) + "\n")
-		}
+	}
+	for _, l := range p.Lines {
+		r.b.WriteString(l + "\n")
+	}
+	if p.Note != "" {
+		r.para(p.Note)
 	}
 	return strings.TrimRight(r.b.String(), "\n")
 }
@@ -175,11 +206,7 @@ func (r *renderer) deviceLine(d DeviceInfo) {
 func (r *renderer) newDevices(m Message) {
 	lang, esc, bold, unbold := r.lang, r.esc, r.bold, r.unbold
 	b := &r.b
-	if len(m.Devices) == 1 {
-		r.title(tr(lang, "new1"))
-	} else {
-		r.title(fmt.Sprintf(tr(lang, "newN"), len(m.Devices)))
-	}
+	r.title(Describe(m, lang, esc).Title)
 	for i, d := range m.Devices {
 		if i == maxListed {
 			b.WriteString("\n" + fmt.Sprintf(tr(lang, "more"), len(m.Devices)-maxListed) + "\n")
