@@ -241,7 +241,7 @@ func sendResend(ctx context.Context, s Settings, m Message) error {
 		if json.Unmarshal(raw, &e) != nil || e.Message == "" {
 			e.Message = strings.TrimSpace(string(raw))
 		}
-		return scrub(fmt.Errorf("Resend: HTTP %d: %s", resp.StatusCode, e.Message), s.ResendKey)
+		return scrub(fmt.Errorf("resend: HTTP %d: %s", resp.StatusCode, e.Message), s.ResendKey)
 	}
 	return nil
 }
