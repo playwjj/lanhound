@@ -57,6 +57,7 @@ type Server struct {
 	Routers  *core.Routers // nil disables router sources
 	HASS     HASS          // nil disables the Home Assistant bridge
 	Services *core.ServiceScan
+	Probes   *core.Probes
 	Version  string
 	Interval time.Duration
 	// Password enables HTTP basic auth (any username) when non-empty.
@@ -79,6 +80,7 @@ type Status struct {
 	Routers      []core.RouterStatus `json:"routers"`
 	HASS         *hass.Status        `json:"hass,omitempty"`
 	ServiceScan  bool                `json:"serviceScan"`
+	Probes       []core.ProbeStatus  `json:"probes"`
 }
 
 // Status builds the current status payload.
@@ -100,7 +102,14 @@ func (s *Server) Status() Status {
 		st := s.HASS.Status()
 		hs = &st
 	}
+	ifaces := s.Scanner.Status()
+	probes := []core.ProbeStatus{}
+	if s.Probes != nil {
+		ifaces = append(ifaces, s.Probes.Interfaces()...)
+		probes = s.Probes.Status()
+	}
 	return Status{
+		Probes:       probes,
 		ServiceScan:  s.Services != nil && s.Services.Enabled(),
 		HASS:         hs,
 		Routers:      routers,
@@ -109,7 +118,7 @@ func (s *Server) Status() Status {
 		StartedAt:    s.started,
 		Baseline:     s.Registry.Baseline(),
 		ScanInterval: int(s.Interval / time.Second),
-		Interfaces:   s.Scanner.Status(),
+		Interfaces:   ifaces,
 		Skipped:      skipped,
 		Notify:       s.Settings.Get().Configured(),
 		Alerts:       s.Registry.AlertStatus(),
@@ -142,6 +151,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/activity", s.activity)
 	mux.HandleFunc("GET /api/alerts", s.alerts)
 	mux.HandleFunc("POST /api/alerts/{id}/trust", s.trustAlert)
+	mux.HandleFunc("POST /api/ingest", s.ingest)
+	mux.HandleFunc("GET /api/probes", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, s.probeList()) })
+	mux.HandleFunc("POST /api/probes", s.addProbe)
+	mux.HandleFunc("DELETE /api/probes/{id}", s.removeProbe)
 	mux.HandleFunc("PUT /api/services", s.putServices)
 	mux.HandleFunc("POST /api/devices/{id}/probe", s.probeDevice)
 	mux.HandleFunc("GET /api/hass", s.getHASS)
@@ -165,7 +178,8 @@ func (s *Server) Handler() http.Handler {
 // which we never approve).
 func (s *Server) guard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.Password != "" {
+		// Probes authenticate with their own token (checked in ingest).
+		if s.Password != "" && r.URL.Path != "/api/ingest" {
 			_, pass, ok := r.BasicAuth()
 			if !ok || subtle.ConstantTimeCompare([]byte(pass), []byte(s.Password)) != 1 {
 				w.Header().Set("WWW-Authenticate", `Basic realm="LanHound"`)
@@ -352,6 +366,74 @@ func (s *Server) trustAlert(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// ingest receives a remote probe's upload. It authenticates with the
+// probe's bearer token, not the UI password.
+func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
+	if s.Probes == nil {
+		http.Error(w, "probes disabled", http.StatusNotFound)
+		return
+	}
+	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if !ok {
+		http.Error(w, "missing probe token", http.StatusUnauthorized)
+		return
+	}
+	var u core.Upload
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<20)).Decode(&u); err != nil {
+		http.Error(w, "bad JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := s.Probes.Ingest(token, u); err != nil {
+		if errors.Is(err, core.ErrBadToken) {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+		fail(w, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func (s *Server) probeList() []core.ProbeStatus {
+	if s.Probes == nil {
+		return []core.ProbeStatus{}
+	}
+	return s.Probes.Status()
+}
+
+func (s *Server) addProbe(w http.ResponseWriter, r *http.Request) {
+	if s.Probes == nil {
+		http.Error(w, "probes disabled", http.StatusNotFound)
+		return
+	}
+	var body struct {
+		Name string `json:"name"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	p, token, err := s.Probes.Add(body.Name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.Hub.Publish("status", s.Status())
+	writeJSON(w, map[string]any{"probe": p, "token": token})
+}
+
+func (s *Server) removeProbe(w http.ResponseWriter, r *http.Request) {
+	if s.Probes == nil {
+		http.Error(w, "probes disabled", http.StatusNotFound)
+		return
+	}
+	if err := s.Probes.Remove(r.PathValue("id")); err != nil {
+		fail(w, err)
+		return
+	}
+	s.Hub.Publish("status", s.Status())
 	writeJSON(w, map[string]bool{"ok": true})
 }
 

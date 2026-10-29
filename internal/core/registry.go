@@ -41,6 +41,10 @@ type Options struct {
 	Send func(ctx context.Context, s notify.Settings, m notify.Message) error
 	// Now is the clock (tests).
 	Now func() time.Time
+	// IfaceStale, when set, reports interfaces whose watcher (a remote
+	// probe) stopped reporting; their devices keep their state instead of
+	// all going offline at once.
+	IfaceStale func(iface string) bool
 }
 
 // View is a device as the API presents it.
@@ -150,6 +154,14 @@ func NewRegistry(o Options) (*Registry, error) {
 	return r, nil
 }
 
+// SetIfaceStale installs Options.IfaceStale after construction (the
+// probe manager needs the registry first).
+func (r *Registry) SetIfaceStale(f func(string) bool) {
+	r.mu.Lock()
+	r.o.IfaceStale = f
+	r.mu.Unlock()
+}
+
 // Baseline reports whether the registry is still in baseline mode.
 func (r *Registry) Baseline() bool {
 	r.mu.Lock()
@@ -176,6 +188,14 @@ func (r *Registry) Observe(s passive.Sighting) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.observe(s, false)
+}
+
+// ObserveQuiet is Observe without a new-device alert — for a remote
+// probe's first sweep, which is a baseline like LanHound's own.
+func (r *Registry) ObserveQuiet(s passive.Sighting) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.observe(s, true)
 }
 
 // RouterIfacePrefix marks devices known only from a router's table.
@@ -441,7 +461,7 @@ func (r *Registry) Flush() {
 		r.check(r.o.Store.TouchDevices(touched))
 	}
 	for _, d := range r.devices {
-		if d.Online && now.Sub(d.LastSeen) > r.o.OfflineAfter {
+		if d.Online && now.Sub(d.LastSeen) > r.o.OfflineAfter && (r.o.IfaceStale == nil || !r.o.IfaceStale(d.Iface)) {
 			d.Online = false
 			r.check(r.o.Store.UpdateDevice(d))
 			r.check(r.o.Store.CloseSession(d.ID, d.LastSeen))

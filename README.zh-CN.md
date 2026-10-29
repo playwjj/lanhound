@@ -90,6 +90,17 @@ ARP 只能看到 LanHound 所在的广播域。如果想把路由器后面的设
 
 这本质上是（很轻的）端口扫描，所以需要手动开启，请只在你自己的网络上使用。`lanhound probe <IP>` 可以在命令行单独跑一次同样的探测，设备详情里也有"立即探测"按钮。
 
+## 远程探针（VLAN、访客网络）
+
+LanHound 每个网卡只能看到一个广播域。对于它到不了的网段（VLAN、访客 Wi-Fi、实验网络），在**设置 → 发现 → 远程探针**里添加探针。LanHound 会显示一次性令牌，并给出在该网段任意一台 Linux 主机上运行的命令：
+
+```sh
+docker run -d --name lanhound-agent --restart unless-stopped --network host --cap-add=NET_RAW \
+  ghcr.io/playwjj/lanhound agent --server http://<主控地址>:8686 --token lhp_…
+```
+
+探针的扫描和监听与 LanHound 完全相同，但不存数据库，每 2 秒上报一次；主控连不上时先缓存，恢复后补发。探针发现的设备单独分组，享有全部功能：历史、告警、安全检测（使用该网段自己的网关）、指纹识别。探针的第一轮扫描静默不报警。探针掉线时显示为离线，但它那个网段的设备**不会**被批量判为离线，不会误发一堆"关键设备离线"报警。删除探针后，它的令牌立即失效。
+
 ## Home Assistant
 
 在**设置 → Home Assistant**里填上 Home Assistant 所用的 MQTT 服务器（或设置 `LANHOUND_MQTT_URL=mqtt://用户:密码@地址:1883`）。LanHound 通过 MQTT 自动发现创建：
@@ -130,7 +141,7 @@ ARP 只能看到 LanHound 所在的广播域。如果想把路由器后面的设
 | 多网卡主机（有线 + Wi-Fi、双网口） | ✅ 每个网卡各一个监听 |
 | 跑着 Docker / 虚拟机的主机 | ✅ 自动跳过容器和虚拟机网桥（`docker0`、`br-<id>`、`virbr0` 等）；确实要看守的话写进 `LANHOUND_INTERFACES` |
 | 光猫 + 路由器双层 NAT（光猫在 192.168.1.0/24） | ✅ 通过路由器 / 光猫设备表数据源（ARP 过不了路由器） |
-| VLAN / 访客网络 / AP 隔离 | 每个网段部署一个实例，LanHound 只能看到自己所在的广播域 |
+| VLAN / 访客网络 / AP 隔离 | ✅ 每个网段放一个远程探针（`lanhound agent`），汇总到同一个面板 |
 
 请只在你拥有或获授权监控的网络上运行 LanHound。
 
@@ -180,7 +191,8 @@ sudo setcap cap_net_raw+ep ./lanhound   # 唯一需要的权限
 
 - **v0.1**：发现引擎、在线历史、Web 界面、新设备报警
 - **v0.2（当前）**：安全告警组（ARP 欺骗/冲突、ARP 泛洪、网关 MAC 变更、野 DHCP）、关键设备、告警记录、CSV 导出
-- **下个版本**（已在 main 分支完成）：路由器/光猫设备表（OpenWrt、通用网址）、IPv6 设备发现、在线热力图、随机 MAC 指纹识别
+- **v0.2**：安全告警组、路由器/光猫设备表、IPv6、热力图、随机 MAC 指纹识别
+- **下个版本**（已在 main 分支完成）：Home Assistant 集成（MQTT 自动发现）、服务识别（需手动开启）、VLAN/访客网络远程探针
 
 ## 许可证
 

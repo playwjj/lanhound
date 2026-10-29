@@ -7,6 +7,7 @@ import { ago, isZero } from '../format'
 import Icon from './Icon.vue'
 import RoutersEditor from './RoutersEditor.vue'
 import HassEditor from './HassEditor.vue'
+import ProbesEditor from './ProbesEditor.vue'
 
 const emit = defineEmits(['close'])
 const form = ref(null)
@@ -66,7 +67,7 @@ const test = () => act(() => api.testSettings(form.value), t('testOk'))
       <button class="btn icon" :title="t('close')" @click="emit('close')"><Icon name="x" /></button>
     </header>
 
-    <div v-if="tab === 'routers'" class="body"><RoutersEditor /></div>
+    <div v-if="tab === 'routers'" class="body"><RoutersEditor /><ProbesEditor /></div>
     <div v-else-if="tab === 'hass'" class="body"><HassEditor /></div>
     <form v-else-if="form" class="body" @submit.prevent="save">
       <div class="checks">

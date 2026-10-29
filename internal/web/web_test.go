@@ -227,3 +227,55 @@ func TestAlertsAPI(t *testing.T) {
 		t.Fatalf("gateways %v", st2.Gateways)
 	}
 }
+
+func TestIngestAPI(t *testing.T) {
+	st, _ := store.Open(filepath.Join(t.TempDir(), "i.db"))
+	defer st.Close()
+	set, _ := core.NewSettings(st, notify.Settings{})
+	hub := core.NewHub()
+	reg, _ := core.NewRegistry(core.Options{Store: st, Hub: hub, Settings: set})
+	probes, _ := core.NewProbes(st, func(s passive.Sighting, _ bool) { reg.Observe(s) })
+	ts := httptest.NewServer((&Server{Registry: reg, Settings: set, Hub: hub, Scanner: &fakeScanner{}, Probes: probes, Password: "ui-pass"}).Handler())
+	defer ts.Close()
+
+	add := func() string {
+		req, _ := http.NewRequest("POST", ts.URL+"/api/probes", strings.NewReader(`{"name":"guest"}`))
+		req.SetBasicAuth("", "ui-pass")
+		req.Header.Set("X-LanHound", "1")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var out struct{ Token string }
+		_ = json.NewDecoder(resp.Body).Decode(&out)
+		return out.Token
+	}
+	token := add()
+	if token == "" {
+		t.Fatal("no token")
+	}
+	body := `{"version":"v9","interfaces":[{"interface":"eth0","network":"192.168.50.0/24"}],"sightings":[{"iface":"eth0","mac":"24:0a:c4:00:00:50","ip":"192.168.50.20","source":"arp-reply"}]}`
+	// The UI password does not apply to /api/ingest; the probe token does.
+	if r := do(t, "POST", ts.URL+"/api/ingest", body, map[string]string{"Authorization": "Bearer nope", "X-LanHound": "agent"}); r.StatusCode != 401 {
+		t.Fatalf("bad token: %d", r.StatusCode)
+	}
+	if r := do(t, "POST", ts.URL+"/api/ingest", body, map[string]string{"Authorization": "Bearer " + token, "X-LanHound": "agent"}); r.StatusCode != 200 {
+		t.Fatalf("ingest: %d", r.StatusCode)
+	}
+	if devs := reg.Devices(); len(devs) != 1 || devs[0].Iface != "guest/eth0" {
+		t.Fatalf("devices %+v", devs)
+	}
+	req, _ := http.NewRequest("GET", ts.URL+"/api/status", nil)
+	req.SetBasicAuth("", "ui-pass")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var st2 Status
+	_ = json.NewDecoder(resp.Body).Decode(&st2)
+	if len(st2.Interfaces) != 2 || st2.Interfaces[1].Interface != "guest/eth0" || len(st2.Probes) != 1 || !st2.Probes[0].Online {
+		t.Fatalf("status %+v", st2)
+	}
+}

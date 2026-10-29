@@ -3,6 +3,7 @@
 //	lanhound            run the watchdog and web UI (default)
 //	lanhound scan       one-shot scan, print the devices and exit
 //	lanhound probe IP   show which common services a host runs
+//	lanhound agent      scan this segment for a central LanHound (multi-probe)
 //	lanhound version    print the version
 //
 // Discovery needs CAP_NET_RAW (root, or `sudo setcap cap_net_raw+ep
@@ -29,6 +30,7 @@ import (
 	"time"
 	_ "time/tzdata" // honour TZ in the scratch-based Docker image
 
+	"github.com/playwjj/lanhound/internal/agent"
 	"github.com/playwjj/lanhound/internal/core"
 	"github.com/playwjj/lanhound/internal/demo"
 	"github.com/playwjj/lanhound/internal/hass"
@@ -60,10 +62,12 @@ func main() {
 		scan(args)
 	case "probe":
 		probeCmd(args)
+	case "agent":
+		agentCmd(args)
 	case "version":
 		fmt.Println("lanhound", version)
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q (want serve, scan, probe or version)\n", cmd)
+		fmt.Fprintf(os.Stderr, "unknown command %q (want serve, agent, scan, probe or version)\n", cmd)
 		os.Exit(2)
 	}
 }
@@ -175,6 +179,19 @@ func serve(args []string) {
 	if err != nil {
 		log.Fatalf("load Home Assistant settings: %v", err)
 	}
+	probes, err := core.NewProbes(st, func(s passive.Sighting, quiet bool) {
+		if quiet {
+			reg.ObserveQuiet(s)
+		} else {
+			reg.Observe(s)
+		}
+		guard.Observe(s)
+	})
+	if err != nil {
+		log.Fatalf("load probes: %v", err)
+	}
+	reg.SetIfaceStale(probes.Stale)
+	guard.SetExtraGateways(probes.Gateways)
 	svcScan, err := core.NewServiceScan(st, reg, func(ip string) bool {
 		for _, gws := range guard.Gateways() {
 			for _, g := range gws {
@@ -188,7 +205,7 @@ func serve(args []string) {
 	if err != nil {
 		log.Fatalf("load service scan settings: %v", err)
 	}
-	srv := &web.Server{Registry: reg, Settings: settings, Hub: hub, Security: guard, Routers: routers, HASS: bridge, Services: svcScan, Version: version, Interval: *interval, Password: os.Getenv("LANHOUND_PASSWORD")}
+	srv := &web.Server{Registry: reg, Settings: settings, Hub: hub, Security: guard, Routers: routers, HASS: bridge, Services: svcScan, Probes: probes, Version: version, Interval: *interval, Password: os.Getenv("LANHOUND_PASSWORD")}
 	publishStatus := func() { hub.Publish("status", srv.Status()) }
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -321,6 +338,31 @@ func scan(args []string) {
 	}
 	_ = w.Flush()
 	fmt.Printf("%d device(s) found\n", len(rows))
+}
+
+// agentCmd runs a remote probe: scan here, report to a central LanHound.
+func agentCmd(args []string) {
+	fs := flag.NewFlagSet("agent", flag.ExitOnError)
+	server := fs.String("server", env("LANHOUND_SERVER", ""), "central LanHound URL, e.g. http://192.168.2.22:8686 (env LANHOUND_SERVER)")
+	token := fs.String("token", env("LANHOUND_TOKEN", ""), "probe token from Settings → Discovery → Probes (env LANHOUND_TOKEN)")
+	interval := fs.Duration("interval", envDuration("LANHOUND_SCAN_INTERVAL", 5*time.Minute), "time between ARP sweeps (env LANHOUND_SCAN_INTERVAL)")
+	ifaces := fs.String("iface", env("LANHOUND_INTERFACES", ""), "comma-separated interfaces to watch (env LANHOUND_INTERFACES)")
+	rate := fs.Int("rate", envInt("LANHOUND_SCAN_RATE", 300), "max ARP requests per second per interface (env LANHOUND_SCAN_RATE)")
+	_ = fs.Parse(args)
+	if *server == "" || *token == "" {
+		log.Fatal("agent needs --server and --token (or LANHOUND_SERVER / LANHOUND_TOKEN)")
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	a := &agent.Agent{Server: *server, Token: *token, Version: version}
+	eng := scanner.New(scanner.Config{Interval: *interval, Rate: *rate, Only: splitList(*ifaces), OnSighting: a.Collect})
+	a.Status = eng.Status
+	go eng.Run(ctx)
+	log.Printf("LanHound %s agent: reporting to %s", version, *server)
+	if err := a.Run(ctx); err != nil {
+		log.Fatal(err)
+	}
 }
 
 // probeCmd prints the services of one or more hosts — the same probe

@@ -82,6 +82,7 @@ type Guard struct {
 	claims    map[string]map[string]*claim // iface|ip → MAC → claim
 	floods    map[string]*flood            // MAC → current window
 	gateways  map[string][]net.IP          // iface → default gateways
+	extra     func() map[string][]net.IP   // remote probes' gateways
 	lastAlert map[string]time.Time         // dedupe key → when
 }
 
@@ -123,12 +124,22 @@ func (g *Guard) SetGateways(gw map[string][]net.IP) {
 	g.gateways = gw
 }
 
-// Gateways returns the current default gateways (for the UI).
+// Gateways returns the current default gateways, remote probes'
+// included (for the UI).
 func (g *Guard) Gateways() map[string][]string {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	out := map[string][]string{}
-	for iface, ips := range g.gateways {
+	all := map[string][]net.IP{}
+	if g.extra != nil {
+		for k, v := range g.extra() {
+			all[k] = v
+		}
+	}
+	for k, v := range g.gateways {
+		all[k] = v
+	}
+	for iface, ips := range all {
 		for _, ip := range ips {
 			out[iface] = append(out[iface], ip.String())
 		}
@@ -233,12 +244,24 @@ func (g *Guard) arp(s passive.Sighting) []Finding {
 }
 
 func (g *Guard) isGateway(iface string, ip net.IP) bool {
-	for _, gw := range g.gateways[iface] {
+	list := g.gateways[iface]
+	if g.extra != nil && len(list) == 0 {
+		list = g.extra()[iface]
+	}
+	for _, gw := range list {
 		if gw.Equal(ip) {
 			return true
 		}
 	}
 	return false
+}
+
+// SetExtraGateways adds a source of gateways for interfaces this host
+// does not own (remote probes, "<probe>/<iface>").
+func (g *Guard) SetExtraGateways(f func() map[string][]net.IP) {
+	g.mu.Lock()
+	g.extra = f
+	g.mu.Unlock()
 }
 
 // gatewayMAC remembers which MAC answers for the gateway and reports a

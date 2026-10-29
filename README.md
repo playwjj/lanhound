@@ -162,6 +162,27 @@ This is a (gentle) port scan, which is why it is opt-in. Only enable it
 on networks you own. `lanhound probe <ip>` runs the same probe once from
 the command line, and the device panel has a "Probe now" button.
 
+## Remote probes (VLANs, guest networks)
+
+LanHound sees one broadcast domain per interface. For segments it can't
+reach (a VLAN, the guest Wi-Fi, a lab network), add a probe under
+**Settings → Discovery → Remote probes**. LanHound shows a token once,
+together with the command to run on any Linux host in that segment:
+
+```sh
+docker run -d --name lanhound-agent --restart unless-stopped --network host --cap-add=NET_RAW \
+  ghcr.io/playwjj/lanhound agent --server http://<central>:8686 --token lhp_…
+```
+
+The agent scans and listens exactly like LanHound does, keeps no
+database, and uploads every 2 seconds. It buffers while the central
+instance is unreachable. Its devices get their own section and the full
+treatment: history, alerts, the security checks with that segment's
+gateway, and fingerprinting. A probe's first sweep is a silent baseline.
+If a probe goes quiet it is shown offline, and its devices are *not* all
+marked offline (no false "critical device offline" storm). Removing a
+probe revokes its token.
+
 ## Home Assistant
 
 Under **Settings → Home Assistant**, point LanHound at the MQTT broker
@@ -213,7 +234,7 @@ minute (about 11 minutes by default).
 | Multi-homed host (wired + Wi-Fi, dual NIC) | ✅ one watcher per interface |
 | Docker / VM host | ✅ container and VM bridges (`docker0`, `br-<id>`, `virbr0`…) are skipped automatically; name one in `LANHOUND_INTERFACES` to watch it anyway |
 | ISP modem + router double NAT (modem on 192.168.1.0/24) | ✅ via a router/modem device-table source (ARP can't cross a router) |
-| VLANs / guest networks / AP isolation | one instance per segment. LanHound only sees its own broadcast domain |
+| VLANs / guest networks / AP isolation | ✅ a remote probe (`lanhound agent`) per segment reports to one dashboard |
 
 Only run LanHound on networks you own or are authorized to monitor.
 
@@ -299,9 +320,10 @@ isolated by the access point. Run another instance there.
 - **v0.1**: discovery engine, history, web UI, new-device alerts
 - **v0.2 (this)**: security alerts (ARP spoofing/conflicts, ARP floods,
   gateway MAC change, rogue DHCP), critical devices, alert log, CSV export
-- **Next release** (done on main): router/modem device tables (OpenWrt,
-  generic URL), IPv6 discovery, presence heat maps, randomized-MAC
-  fingerprinting
+- **v0.2**: security alerts, router/modem device tables, IPv6, heat
+  maps, randomized-MAC fingerprinting
+- **Next release** (done on main): Home Assistant (MQTT discovery),
+  service detection (opt-in), remote probes for VLANs and guest networks
 
 ## License
 

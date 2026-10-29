@@ -14,6 +14,7 @@ import (
 	"github.com/playwjj/lanhound/internal/notify"
 	"github.com/playwjj/lanhound/internal/passive"
 	"github.com/playwjj/lanhound/internal/router"
+	"github.com/playwjj/lanhound/internal/scanner"
 	"github.com/playwjj/lanhound/internal/security"
 	"github.com/playwjj/lanhound/internal/services"
 	"github.com/playwjj/lanhound/internal/store"
@@ -633,5 +634,90 @@ func TestServiceScan(t *testing.T) {
 		if d.ID == id && (len(d.Services) != 2 || !d.Services[1].Risky) {
 			t.Fatalf("services not stored: %+v", d.Services)
 		}
+	}
+}
+
+func TestProbes(t *testing.T) {
+	h := newHarness(t, "")
+	var got []passive.Sighting
+	h.r.EndBaseline()
+	p, err := NewProbes(h.st, func(s passive.Sighting, quiet bool) {
+		got = append(got, s)
+		if quiet {
+			h.r.ObserveQuiet(s)
+		} else {
+			h.r.Observe(s)
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.now = h.clk.Now
+	h.r.o.IfaceStale = p.Stale
+
+	ps, token, err := p.Add("guest vlan!")
+	if err != nil || ps.Name != "guest-vlan" || !strings.HasPrefix(token, "lhp_") {
+		t.Fatalf("add: %+v %q %v", ps, token, err)
+	}
+	if _, _, err := p.Add("Guest-VLAN"); err == nil {
+		t.Fatal("duplicate names must be refused")
+	}
+	if err := p.Ingest("lhp_wrong", Upload{}); err != ErrBadToken {
+		t.Fatalf("wrong token: %v", err)
+	}
+	up := Upload{
+		Version:    "v9",
+		Interfaces: []scanner.Status{{Interface: "eth0", Network: "192.168.50.0/24"}},
+		Gateways:   map[string][]string{"eth0": {"192.168.50.1"}},
+		Sightings:  []WireSighting{{Iface: "eth0", MAC: "24:0a:c4:00:00:50", IP: "192.168.50.20", Source: passive.SrcARPReply, At: h.clk.Now()}},
+	}
+	if err := p.Ingest(token, up); err != nil {
+		t.Fatal(err)
+	}
+	v := h.r.Devices()[0]
+	if v.Iface != "guest-vlan/eth0" || v.IP != "192.168.50.20" || !v.Online {
+		t.Fatalf("device %+v", v)
+	}
+	// Before the probe's first sweep finished: silent baseline.
+	h.clk.Add(time.Minute)
+	if a := h.alerts(t); len(a) != 0 {
+		t.Fatalf("a new probe's first sweep must not alert: %+v", a)
+	}
+	up.Interfaces[0].LastSweep = h.clk.Now()
+	up.Sightings = append(up.Sightings, WireSighting{Iface: "eth0", MAC: "24:0a:c4:00:00:51", IP: "192.168.50.21", Source: passive.SrcARPReply, At: h.clk.Now()})
+	_ = p.Ingest(token, up) // still the first sweep's tail
+	up.Sightings = []WireSighting{{Iface: "eth0", MAC: "e4:95:6e:40:11:22", IP: "192.168.50.99", Source: passive.SrcDHCP, At: h.clk.Now()}}
+	_ = p.Ingest(token, up) // a genuinely new device afterwards
+	h.clk.Add(time.Minute)
+	if a := h.alerts(t); len(a) != 1 || a[0].Devices[0].MAC != "e4:95:6e:40:11:22" {
+		t.Fatalf("want one alert for the later device, got %+v", a)
+	}
+	st := p.Status()
+	if len(st) != 1 || !st[0].Online || st[0].Interfaces[0].Interface != "guest-vlan/eth0" || st[0].Version != "v9" {
+		t.Fatalf("status %+v", st)
+	}
+	if gw := p.Gateways()["guest-vlan/eth0"]; len(gw) != 1 || gw[0].String() != "192.168.50.1" {
+		t.Fatalf("gateways %v", gw)
+	}
+
+	// The probe goes silent: its devices are not all marked offline.
+	h.clk.Add(30 * time.Minute)
+	h.r.Flush()
+	if v, _ := h.r.Device(v.ID); !v.Online {
+		t.Fatal("devices behind a silent probe must not go offline")
+	}
+	if p.Status()[0].Online || p.Interfaces()[0].Error != "probe offline" {
+		t.Fatal("probe should show offline")
+	}
+	// Removing the probe revokes its token.
+	if err := p.Remove(ps.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Ingest(token, up); err != ErrBadToken {
+		t.Fatal("removed probe's token must stop working")
+	}
+	p2, _ := NewProbes(h.st, func(passive.Sighting, bool) {})
+	if len(p2.Status()) != 0 {
+		t.Fatal("removal not persisted")
 	}
 }
