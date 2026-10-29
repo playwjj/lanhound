@@ -57,6 +57,9 @@ type View struct {
 	// dhcp). The UI offers a one-click merge.
 	SameAs    int64    `json:"sameAs,omitempty"`
 	SameAsWhy []string `json:"sameAsWhy,omitempty"`
+	// Link is Wi-Fi or wired: certain when a router reported it,
+	// otherwise a guess with reasons; nil when there is no clue.
+	Link *Link `json:"link,omitempty"`
 }
 
 // Patch is a user edit; nil fields are left alone.
@@ -213,11 +216,34 @@ func (r *Registry) ObserveRouter(label string, entries []router.Entry, quiet boo
 	now := r.o.Now()
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	hasWiFi := false
+	for _, e := range entries {
+		hasWiFi = hasWiFi || e.Wireless != nil
+	}
 	for _, e := range entries {
 		r.observe(passive.Sighting{
 			Iface: RouterIfacePrefix + label, MAC: e.MAC, IP: e.IP, Source: passive.SrcRouter,
 			Hostname: e.Hostname, HostnameSource: passive.SrcRouter, At: now,
 		}, quiet)
+		d, ok := r.devices[r.byMAC[e.MAC.String()]]
+		if !ok {
+			continue
+		}
+		switch {
+		case e.Wireless != nil:
+			w := e.Wireless
+			changed := d.WiFi == nil || d.WiFi.Band != w.Band || d.WiFi.Router != label
+			d.WiFi = &store.WiFi{Band: w.Band, Signal: w.Signal, Radio: w.Radio, Router: label, At: now}
+			r.check(r.o.Store.UpdateDevice(d)) // keeps the report's time current
+			if changed {
+				r.publish(d)
+			}
+		case hasWiFi && d.WiFi != nil && d.WiFi.Router == label:
+			// This router has Wi-Fi and no longer lists the device on it.
+			d.WiFi = nil
+			r.check(r.o.Store.UpdateDevice(d))
+			r.publish(d)
+		}
 	}
 }
 
@@ -577,6 +603,7 @@ func (r *Registry) view(d *store.Device) View {
 	if m, ok := r.bestMatch(d); ok {
 		v.SameAs, v.SameAsWhy = m.ID, m.Reasons
 	}
+	v.Link = link(d, r.o.Now())
 	return v
 }
 
@@ -714,6 +741,9 @@ func (r *Registry) Merge(src, dst int64) (View, error) {
 	}
 	if m.Model == "" {
 		m.Model = s.Model
+	}
+	if s.WiFi != nil && (m.WiFi == nil || s.WiFi.At.After(m.WiFi.At)) {
+		m.WiFi = s.WiFi
 	}
 	for i := len(s.IPv6) - 1; i >= 0; i-- {
 		addIPv6(&m, net.ParseIP(s.IPv6[i]))

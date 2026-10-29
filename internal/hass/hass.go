@@ -477,7 +477,7 @@ func (b *Bridge) device(p publisher, cfg Config, v core.View) error {
 	attrs, _ := json.Marshal(map[string]any{
 		"ip": v.IP, "ipv6": v.IPv6, "mac": v.MAC, "macs": v.MACs, "hostname": v.Hostname, "vendor": v.Vendor,
 		"model": v.Model, "interface": v.Iface, "known": v.Known, "critical": v.Critical,
-		"first_seen": v.FirstSeen, "last_seen": v.LastSeen, "note": v.Note,
+		"first_seen": v.FirstSeen, "last_seen": v.LastSeen, "note": v.Note, "connection": v.Link,
 	})
 	if err := p.Publish(topic+"/attributes", true, attrs); err != nil {
 		return err

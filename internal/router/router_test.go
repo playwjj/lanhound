@@ -72,6 +72,28 @@ func (f *fakeUbus) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"DA:00:00:00:00:51": map[string]any{"ipaddrs": []string{"192.168.1.51"}, "name": "Pixel-8"},
 			"AC:84:C6:00:00:60": map[string]any{"ipaddrs": []string{"192.168.1.60"}, "name": "NAS"},
 		})
+	case "iwinfo.devices":
+		if f.noHints {
+			reply(3)
+			return
+		}
+		reply(0, map[string]any{"devices": []string{"phy0-ap0", "phy1-ap0"}})
+	case "iwinfo.info":
+		var a map[string]string
+		_ = json.Unmarshal(req.Params[3], &a)
+		freq := 2437
+		if a["device"] == "phy1-ap0" {
+			freq = 5180
+		}
+		reply(0, map[string]any{"frequency": freq})
+	case "iwinfo.assoclist":
+		var a map[string]string
+		_ = json.Unmarshal(req.Params[3], &a)
+		if a["device"] == "phy1-ap0" {
+			reply(0, map[string]any{"results": []map[string]any{{"mac": "DA:00:00:00:00:51", "signal": -52}}})
+			return
+		}
+		reply(0, map[string]any{"results": []map[string]any{{"mac": "7C:49:EB:0A:0B:0E", "signal": -71}}})
 	default:
 		reply(3)
 	}
@@ -91,8 +113,17 @@ func TestOpenWrtFetch(t *testing.T) {
 	for _, e := range got {
 		byMAC[e.MAC.String()] = e
 	}
-	if len(got) != 3 || byMAC["00:1e:a0:11:22:33"].Hostname != "IPTV-Box" || byMAC["da:00:00:00:00:51"].Hostname != "Pixel-8" || byMAC["ac:84:c6:00:00:60"].IP.String() != "192.168.1.60" {
+	if len(got) != 4 || byMAC["00:1e:a0:11:22:33"].Hostname != "IPTV-Box" || byMAC["da:00:00:00:00:51"].Hostname != "Pixel-8" || byMAC["ac:84:c6:00:00:60"].IP.String() != "192.168.1.60" {
 		t.Fatalf("entries %+v", got)
+	}
+	if w := byMAC["da:00:00:00:00:51"].Wireless; w == nil || w.Band != "5 GHz" || w.Signal != -52 {
+		t.Fatalf("phone should be on 5 GHz Wi-Fi: %+v", w)
+	}
+	if w := byMAC["7c:49:eb:0a:0b:0e"].Wireless; w == nil || w.Band != "2.4 GHz" {
+		t.Fatalf("Wi-Fi-only client (no lease) should be listed: %+v", w)
+	}
+	if byMAC["00:1e:a0:11:22:33"].Wireless != nil {
+		t.Fatal("wired IPTV box must not be marked wireless")
 	}
 
 	// The session is reused, and renewed transparently when it expires.

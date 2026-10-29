@@ -230,7 +230,7 @@ func (s *Server) exportCSV(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", `attachment; filename="lanhound-devices-`+time.Now().Format("20060102")+`.csv"`)
 	_, _ = w.Write([]byte("\ufeff"))
 	cw := csv.NewWriter(w)
-	_ = cw.Write([]string{"name", "hostname", "ip", "ipv6", "mac", "all_macs", "randomized", "vendor", "model", "interface", "known", "online", "first_seen", "last_seen", "note"})
+	_ = cw.Write([]string{"name", "hostname", "ip", "ipv6", "mac", "all_macs", "randomized", "link", "link_certain", "vendor", "model", "interface", "known", "online", "first_seen", "last_seen", "note"})
 	ts := func(t time.Time) string {
 		if t.IsZero() {
 			return ""
@@ -239,12 +239,19 @@ func (s *Server) exportCSV(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, d := range s.Registry.Devices() {
 		_ = cw.Write([]string{
-			csvSafe(d.Name), csvSafe(d.Hostname), d.IP, strings.Join(d.IPv6, " "), d.MAC, strings.Join(d.MACs, " "), strconv.FormatBool(d.Randomized),
+			csvSafe(d.Name), csvSafe(d.Hostname), d.IP, strings.Join(d.IPv6, " "), d.MAC, strings.Join(d.MACs, " "), strconv.FormatBool(d.Randomized), linkType(d.Link), strconv.FormatBool(d.Link != nil && d.Link.Certain),
 			csvSafe(d.Vendor), csvSafe(d.Model), d.Iface, strconv.FormatBool(d.Known), strconv.FormatBool(d.Online),
 			ts(d.FirstSeen), ts(d.LastSeen), csvSafe(d.Note),
 		})
 	}
 	cw.Flush()
+}
+
+func linkType(l *core.Link) string {
+	if l == nil {
+		return ""
+	}
+	return l.Type
 }
 
 // csvSafe defuses spreadsheet formula injection: hostnames are chosen

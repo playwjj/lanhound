@@ -53,6 +53,12 @@ function subtitle(d) {
           <InlineName :device="d" />
           <span v-if="!d.known" class="badge new">{{ t('new') }}</span>
           <span v-if="d.critical" class="badge crit" :title="t('criticalHelp')">{{ t('criticalBadge') }}</span>
+          <span
+            v-if="d.link"
+            class="badge link"
+            :class="[d.link.type, { guess: !d.link.certain }]"
+            :title="d.link.certain ? [d.link.band, d.link.signal ? d.link.signal + ' dBm' : '', t('linkVia', { r: d.link.via })].filter(Boolean).join(' · ') : t('linkGuessTip')"
+          >{{ t('link_' + d.link.type) }}{{ d.link.certain ? '' : '?' }}</span>
           <span v-if="d.sameAs && state.devices[d.sameAs]" class="badge random same" :title="t('sameName', { name: state.devices[d.sameAs].name || state.devices[d.sameAs].hostname || state.devices[d.sameAs].mac, why: whyText(d) })">
             <Icon name="merge" :size="11" />{{ t('sameNameBadge') }}
           </span>
@@ -141,6 +147,15 @@ function subtitle(d) {
   align-items: center;
   gap: 6px;
   min-width: 0;
+}
+.badge.link {
+  background: var(--surface-2);
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+.badge.link.guess {
+  border-style: dashed;
+  background: none;
 }
 .crit {
   background: var(--danger-soft);

@@ -15,6 +15,12 @@
 </p>
 
 <p align="center">
+  <a href="https://hub.docker.com/r/passport888/lanhound"><img alt="Docker Hub" src="https://img.shields.io/docker/pulls/passport888/lanhound?logo=docker"></a>
+  <a href="https://github.com/playwjj/lanhound/releases"><img alt="Release" src="https://img.shields.io/github/v/release/playwjj/lanhound"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
+</p>
+
+<p align="center">
   <img src="docs/screenshot-zh.png" alt="LanHound 设备列表" width="860">
 </p>
 
@@ -24,8 +30,10 @@
 docker run -d --name lanhound --restart unless-stopped \
   --network host --cap-add=NET_RAW \
   -v lanhound-data:/data \
-  ghcr.io/playwjj/lanhound
+  passport888/lanhound
 ```
+
+同一个多架构镜像（amd64、arm64、armv7）同时发布在 [Docker Hub](https://hub.docker.com/r/passport888/lanhound)（`passport888/lanhound`）和 GitHub（`ghcr.io/playwjj/lanhound`），哪个拉得动用哪个。国内常见的镜像加速一般只缓存 Docker Hub，所以优先用 Docker Hub 的地址。
 
 打开 `http://<主机IP>:8686` 即可。不写配置文件、不用注册账号、没有向导：LanHound 自动识别宿主机所有内网网卡和网段，立即开始看守。
 
@@ -51,6 +59,7 @@ docker compose up -d
   - **关键设备**：把 NAS、摄像头标为关键设备，离线和恢复在线时都会通知你。
 
   所有告警都会记录在界面的告警记录（🔔）里，没开通知也能看到。
+- **有线还是无线**：两者在网线上看起来一模一样，所以 LanHound 如实标注。接了 OpenWrt 路由器数据源后能确切知道，直接读路由器自己的客户端列表，显示"无线 · 5 GHz · −52 dBm"。否则给出带"?"的推测并注明理由（随机 MAC、Wi-Fi 芯片厂商、手机 → 无线；路由器、NAS → 有线），没把握就不标。
 - **多网卡**：有线 + Wi-Fi 双栖、双网口小主机，每个广播域各起一个监听，设备按接口分组展示；网卡增减自动跟随。
 
 <p align="center">
@@ -79,7 +88,7 @@ Webhook 会收到一个 JSON POST，字段说明见[英文 README](README.md#ale
 
 ARP 只能看到 LanHound 所在的广播域。如果想把路由器后面的设备也列进来（其他网段、访客网络、双层 NAT 中光猫那一侧），并直接从租约表拿到 DHCP 主机名，可以在**设置 → 路由器**里添加数据源：
 
-- **OpenWrt**（包括 ImmortalWrt、iStoreOS、Kwrt 等衍生版）：填 LuCI 地址和路由器账号。LanHound 每 2 分钟调用两个只读接口（`luci-rpc getDHCPLeases` / `getHostHints`）。
+- **OpenWrt**（包括 ImmortalWrt、iStoreOS、Kwrt 等衍生版）：填 LuCI 地址和路由器账号。LanHound 每 2 分钟调用几个只读接口：`luci-rpc getDHCPLeases` / `getHostHints` 获取设备和名称，`iwinfo assoclist` 获取哪些设备连在它的 Wi-Fi 上（频段、信号强度）。
 - **网址**：任何能提供 dnsmasq 租约文件、`/proc/net/arp`、`ip neigh` / `arp -a` 输出或 CSV（`mac,ip,名称`）的地址。其他品牌路由器和光猫走这条路，比如用定时任务把光猫的设备列表导出到一个 LanHound 能访问的地方。
 
 本网段设备的在线状态仍以 ARP 为准，只从路由器拿名字，因为路由器表里常有过期条目。只有路由器知道的设备单独分组显示。每个数据源第一次同步不报警，和首轮扫描一样。密码保存在本机数据库里。
@@ -96,7 +105,7 @@ LanHound 每个网卡只能看到一个广播域。对于它到不了的网段�
 
 ```sh
 docker run -d --name lanhound-agent --restart unless-stopped --network host --cap-add=NET_RAW \
-  ghcr.io/playwjj/lanhound agent --server http://<主控地址>:8686 --token lhp_…
+  passport888/lanhound agent --server http://<主控地址>:8686 --token lhp_…
 ```
 
 探针的扫描和监听与 LanHound 完全相同，但不存数据库，每 2 秒上报一次；主控连不上时先缓存，恢复后补发。探针发现的设备单独分组，享有全部功能：历史、告警、安全检测（使用该网段自己的网关）、指纹识别。探针的第一轮扫描静默不报警。探针掉线时显示为离线，但它那个网段的设备**不会**被批量判为离线，不会误发一堆"关键设备离线"报警。删除探针后，它的令牌立即失效。

@@ -1,7 +1,7 @@
 # LanHound — zero config. `docker compose up -d`, then open http://<host>:8686
 services:
   lanhound:
-    image: ghcr.io/playwjj/lanhound:latest
+    image: passport888/lanhound:latest # or ghcr.io/playwjj/lanhound:latest
     container_name: lanhound
     restart: unless-stopped
     network_mode: host # must see the LAN's broadcast domain directly

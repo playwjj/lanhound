@@ -220,6 +220,20 @@ const days = computed(() => {
           <dt>{{ t('model') }}</dt>
           <dd>{{ device.model }}</dd>
         </template>
+        <template v-if="device.link">
+          <dt>{{ t('link') }}</dt>
+          <dd>
+            {{ t('link_' + device.link.type) }}
+            <template v-if="device.link.certain">
+              <span v-if="device.link.band"> · {{ device.link.band }}</span>
+              <span v-if="device.link.signal"> · {{ device.link.signal }} dBm</span>
+              <span class="muted small"> {{ t('linkVia', { r: device.link.via }) }}</span>
+            </template>
+            <span v-else class="muted small" :title="t('linkGuessTip')">
+              ({{ t('linkLikely') }}: {{ device.link.reasons.map((r) => t('why_' + r.replace('-', '_'))).join(locale === 'zh' ? '、' : ', ') }})
+            </span>
+          </dd>
+        </template>
         <template v-if="device.kind">
           <dt>{{ t('kind') }}</dt>
           <dd>{{ t('kind_' + device.kind) }}</dd>

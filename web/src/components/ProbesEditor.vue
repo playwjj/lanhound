@@ -12,7 +12,7 @@ const err = ref('')
 const confirmId = ref(null)
 
 const command = (token) =>
-  `docker run -d --name lanhound-agent --restart unless-stopped --network host --cap-add=NET_RAW \\\n  ghcr.io/playwjj/lanhound agent --server ${location.origin} --token ${token}`
+  `docker run -d --name lanhound-agent --restart unless-stopped --network host --cap-add=NET_RAW \\\n  passport888/lanhound agent --server ${location.origin} --token ${token}`
 
 // The same command on one line, for pasting into any shell.
 const oneLine = (token) => command(token).replace(/ \\\n {2}/, ' ')

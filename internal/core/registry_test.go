@@ -721,3 +721,52 @@ func TestProbes(t *testing.T) {
 		t.Fatal("removal not persisted")
 	}
 }
+
+func TestLink(t *testing.T) {
+	h := newHarness(t, "")
+	h.r.Observe(sight("da:00:00:00:00:51", "192.168.2.51"))                               // random MAC
+	h.r.Observe(sight("24:0a:c4:00:00:03", "192.168.2.87"))                               // Espressif
+	h.r.Observe(sight("00:11:32:aa:bb:02", "192.168.2.10"))                               // Synology, no clue yet
+	h.r.Observe(sight("f0:18:98:00:00:01", "192.168.2.20", fp("Moms-iPhone", "", iosFP))) // Apple, phone name
+	byMAC := func() map[string]View {
+		m := map[string]View{}
+		for _, v := range h.r.Devices() {
+			m[v.MAC] = v
+		}
+		return m
+	}
+	m := byMAC()
+	if l := m["da:00:00:00:00:51"].Link; l == nil || l.Type != "wifi" || l.Certain || l.Reasons[0] != "random-mac" {
+		t.Fatalf("random MAC: %+v", l)
+	}
+	if l := m["24:0a:c4:00:00:03"].Link; l == nil || l.Reasons[0] != "wifi-chip" {
+		t.Fatalf("espressif: %+v", l)
+	}
+	if l := m["f0:18:98:00:00:01"].Link; l == nil || l.Reasons[0] != "phone" {
+		t.Fatalf("iphone: %+v", l)
+	}
+	if m["00:11:32:aa:bb:02"].Link != nil {
+		t.Fatal("no clue should mean no guess")
+	}
+	h.r.setServices(m["00:11:32:aa:bb:02"].ID, nil, services.KindNAS)
+	if l := byMAC()["00:11:32:aa:bb:02"].Link; l == nil || l.Type != "wired" || l.Certain {
+		t.Fatalf("NAS guess: %+v", l)
+	}
+
+	// A router report makes it certain, and expires.
+	hw, _ := net.ParseMAC("24:0a:c4:00:00:03")
+	h.r.ObserveRouter("OpenWrt", []router.Entry{{MAC: hw, Wireless: &router.Wireless{Band: "2.4 GHz", Signal: -71}}}, false)
+	if l := byMAC()["24:0a:c4:00:00:03"].Link; l == nil || !l.Certain || l.Band != "2.4 GHz" || l.Via != "OpenWrt" {
+		t.Fatalf("router report: %+v", l)
+	}
+	// The router still has Wi-Fi clients but no longer lists this one.
+	other, _ := net.ParseMAC("da:00:00:00:00:51")
+	h.r.ObserveRouter("OpenWrt", []router.Entry{{MAC: hw}, {MAC: other, Wireless: &router.Wireless{Band: "5 GHz"}}}, false)
+	if l := byMAC()["24:0a:c4:00:00:03"].Link; l == nil || l.Certain {
+		t.Fatalf("report should be withdrawn: %+v", l)
+	}
+	h.clk.Add(wifiStale + time.Minute)
+	if l := byMAC()["da:00:00:00:00:51"].Link; l == nil || l.Certain {
+		t.Fatalf("stale report should fall back to a guess: %+v", l)
+	}
+}

@@ -15,6 +15,12 @@
 </p>
 
 <p align="center">
+  <a href="https://hub.docker.com/r/passport888/lanhound"><img alt="Docker Hub" src="https://img.shields.io/docker/pulls/passport888/lanhound?logo=docker"></a>
+  <a href="https://github.com/playwjj/lanhound/releases"><img alt="Release" src="https://img.shields.io/github/v/release/playwjj/lanhound"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
+</p>
+
+<p align="center">
   <img src="docs/screenshot.png" alt="LanHound device list" width="860">
 </p>
 
@@ -24,8 +30,14 @@
 docker run -d --name lanhound --restart unless-stopped \
   --network host --cap-add=NET_RAW \
   -v lanhound-data:/data \
-  ghcr.io/playwjj/lanhound
+  passport888/lanhound
 ```
+
+The same multi-arch image (amd64, arm64, armv7) is published to
+[Docker Hub](https://hub.docker.com/r/passport888/lanhound) as
+`passport888/lanhound` and to GitHub as `ghcr.io/playwjj/lanhound`. Use
+whichever your host reaches more easily; registry mirrors usually cache
+Docker Hub.
 
 Open `http://<host>:8686`. That's it: no config file, no account, no
 setup wizard. LanHound finds every private subnet the host has an
@@ -77,6 +89,11 @@ docker compose up -d
   - **Critical devices**: mark your NAS or camera as critical and get told when it goes offline and when it comes back.
 
   Every alert lands in the in-app alert log (🔔), notifications or not.
+- **Wi-Fi or wired.** On the wire both look the same, so LanHound says
+  so honestly. With an OpenWrt router source it knows: "Wi-Fi · 5 GHz ·
+  −52 dBm" from the router's own client list. Otherwise it gives a
+  marked guess with the reason (random MAC, Wi-Fi chip maker, phone →
+  Wi-Fi; router, NAS → wired), or no guess at all.
 - **Multi-interface.** Wired + Wi-Fi or dual-NIC hosts get one watcher
   per broadcast domain, and devices are grouped by interface. Interfaces
   that come and go are followed automatically.
@@ -132,9 +149,10 @@ of a double NAT) and get DHCP names straight from the lease table, add a
 source under **Settings → Routers**:
 
 - **OpenWrt** (and derivatives such as ImmortalWrt, iStoreOS, Kwrt):
-  enter the LuCI address and the router account. LanHound calls two
-  read-only methods (`luci-rpc getDHCPLeases` / `getHostHints`) every 2
-  minutes.
+  enter the LuCI address and the router account. Every 2 minutes
+  LanHound calls read-only methods: `luci-rpc getDHCPLeases` /
+  `getHostHints` for devices and names, and `iwinfo assoclist` for which
+  devices are on its Wi-Fi (band, signal).
 - **URL**: anything that serves a dnsmasq lease file, `/proc/net/arp`,
   `ip neigh` / `arp -a` output or a CSV (`mac,ip,name`). Use this for
   other routers and modems, for example a cron job that copies the
@@ -171,7 +189,7 @@ together with the command to run on any Linux host in that segment:
 
 ```sh
 docker run -d --name lanhound-agent --restart unless-stopped --network host --cap-add=NET_RAW \
-  ghcr.io/playwjj/lanhound agent --server http://<central>:8686 --token lhp_…
+  passport888/lanhound agent --server http://<central>:8686 --token lhp_…
 ```
 
 The agent scans and listens exactly like LanHound does, keeps no

@@ -39,6 +39,16 @@ type Entry struct {
 	MAC      net.HardwareAddr
 	IP       net.IP // may be nil
 	Hostname string
+	// Wireless is set when the router reports the device associated to
+	// one of its own Wi-Fi radios.
+	Wireless *Wireless
+}
+
+// Wireless describes a Wi-Fi association.
+type Wireless struct {
+	Band   string `json:"band,omitempty"`   // "2.4 GHz", "5 GHz", "6 GHz"
+	Signal int    `json:"signal,omitempty"` // dBm
+	Radio  string `json:"radio,omitempty"`  // the AP interface, e.g. phy0-ap0
 }
 
 // Source fetches a device table.
@@ -80,6 +90,9 @@ func merge(entries []Entry) []Entry {
 			}
 			if out[i].IP == nil {
 				out[i].IP = e.IP
+			}
+			if out[i].Wireless == nil {
+				out[i].Wireless = e.Wireless
 			}
 			continue
 		}

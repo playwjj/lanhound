@@ -161,17 +161,21 @@ func (o *openWrt) session(ctx context.Context, renew bool) (string, error) {
 }
 
 // authed calls a method, logging in again once if the session expired.
-func (o *openWrt) authed(ctx context.Context, object, method string) (json.RawMessage, error) {
+func (o *openWrt) authed(ctx context.Context, object, method string, args ...any) (json.RawMessage, error) {
+	var arg any
+	if len(args) > 0 {
+		arg = args[0]
+	}
 	sid, err := o.session(ctx, false)
 	if err != nil {
 		return nil, err
 	}
-	res, err := o.call(ctx, sid, object, method, nil)
+	res, err := o.call(ctx, sid, object, method, arg)
 	if errors.Is(err, errSession) {
 		if sid, err = o.session(ctx, true); err != nil {
 			return nil, err
 		}
-		res, err = o.call(ctx, sid, object, method, nil)
+		res, err = o.call(ctx, sid, object, method, arg)
 	}
 	if errors.Is(err, errSession) {
 		return nil, fmt.Errorf("ubus %s.%s: permission denied for this account", object, method)
@@ -228,5 +232,67 @@ func (o *openWrt) Fetch(ctx context.Context) ([]Entry, error) {
 			}
 		}
 	}
+	entries = append(entries, o.wifiClients(ctx)...)
 	return merge(entries), nil
+}
+
+// wifiClients lists the stations associated to the router's own radios
+// (rpcd's iwinfo object, what LuCI's wireless overview uses). A router
+// without Wi-Fi, or without the iwinfo plugin, simply yields none.
+func (o *openWrt) wifiClients(ctx context.Context) []Entry {
+	res, err := o.authed(ctx, "iwinfo", "devices")
+	if err != nil {
+		return nil
+	}
+	var devs struct {
+		Devices []string `json:"devices"`
+	}
+	if json.Unmarshal(res, &devs) != nil {
+		return nil
+	}
+	var out []Entry
+	for _, dev := range devs.Devices {
+		band := ""
+		if res, err := o.authed(ctx, "iwinfo", "info", map[string]string{"device": dev}); err == nil {
+			var info struct {
+				Frequency int `json:"frequency"` // MHz
+			}
+			if json.Unmarshal(res, &info) == nil {
+				band = bandOf(info.Frequency)
+			}
+		}
+		res, err := o.authed(ctx, "iwinfo", "assoclist", map[string]string{"device": dev})
+		if err != nil {
+			continue
+		}
+		var list struct {
+			Results []struct {
+				MAC    string `json:"mac"`
+				Signal int    `json:"signal"`
+			} `json:"results"`
+		}
+		if json.Unmarshal(res, &list) != nil {
+			continue
+		}
+		for _, st := range list.Results {
+			mac, err := net.ParseMAC(st.MAC)
+			if err != nil {
+				continue
+			}
+			out = append(out, Entry{MAC: mac, Wireless: &Wireless{Band: band, Signal: st.Signal, Radio: dev}})
+		}
+	}
+	return out
+}
+
+func bandOf(mhz int) string {
+	switch {
+	case mhz >= 2400 && mhz < 2500:
+		return "2.4 GHz"
+	case mhz >= 5000 && mhz < 5925:
+		return "5 GHz"
+	case mhz >= 5925 && mhz < 7200:
+		return "6 GHz"
+	}
+	return ""
 }

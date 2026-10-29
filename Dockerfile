@@ -33,4 +33,4 @@ EXPOSE 8686
 ENTRYPOINT ["/lanhound"]
 # Host networking and the one capability ARP needs:
 #   docker run -d --name lanhound --network host --cap-add=NET_RAW \
-#     -v lanhound-data:/data ghcr.io/playwjj/lanhound
+#     -v lanhound-data:/data passport888/lanhound   (or ghcr.io/playwjj/lanhound)
