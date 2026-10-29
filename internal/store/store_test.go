@@ -218,3 +218,38 @@ func TestDatabaseFilesArePrivate(t *testing.T) {
 		t.Errorf("new database mode %o", st.Mode().Perm())
 	}
 }
+
+// A read must not wait for a write transaction to finish.
+func TestReadsDoNotWaitForWrites(t *testing.T) {
+	s := open(t)
+	t0 := time.Unix(1_800_000_000, 0)
+	d := &Device{MAC: "aa:bb:cc:00:00:07", FirstSeen: t0, LastSeen: t0}
+	if err := s.InsertDevice(d); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.AddEvent(d.ID, t0, EventNew, "")
+	tx, err := s.db.Begin() // the writer is busy…
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`UPDATE devices SET name='x' WHERE id=?`, d.ID); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := s.Events(d.ID, 10) // …reads still go through
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("read blocked behind an open write transaction")
+	}
+	_ = tx.Rollback()
+	if _, err := s.ro.Exec(`DELETE FROM events`); err == nil {
+		t.Fatal("reader pool must be read-only")
+	}
+}

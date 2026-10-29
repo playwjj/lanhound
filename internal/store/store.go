@@ -87,7 +87,15 @@ type MAC struct {
 }
 
 // Store wraps the database.
-type Store struct{ db *sql.DB }
+//
+// Writes go through one connection (SQLite has a single writer anyway).
+// Reads — history, alerts, activity, settings — use a small separate
+// pool: in WAL mode they then run alongside a write instead of queueing
+// behind it.
+type Store struct {
+	db *sql.DB // the writer
+	ro *sql.DB // readers (query_only)
+}
 
 const schema = `
 CREATE TABLE IF NOT EXISTS devices (
@@ -169,7 +177,13 @@ func Open(path string) (*Store, error) {
 			return nil, fmt.Errorf("protect %s: %w", f, err)
 		}
 	}
-	return &Store{db: db}, nil
+	ro, err := sql.Open("sqlite", dsn+"&_pragma=query_only(1)")
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	ro.SetMaxOpenConns(2) // each connection carries its own page cache
+	return &Store{db: db, ro: ro}, nil
 }
 
 // migrations upgrade older databases; index i brings user_version i
@@ -218,7 +232,10 @@ func migrate(db *sql.DB) error {
 }
 
 // Close closes the database.
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	s.ro.Close()
+	return s.db.Close()
+}
 
 func unix(t time.Time) int64 {
 	if t.IsZero() {
@@ -410,7 +427,7 @@ func (s *Store) AddEvent(deviceID int64, at time.Time, kind, detail string) erro
 
 // Events returns a device's most recent events, newest first.
 func (s *Store) Events(deviceID int64, limit int) ([]Event, error) {
-	rows, err := s.db.Query(`SELECT at, kind, detail FROM events WHERE device_id=? ORDER BY at DESC, id DESC LIMIT ?`, deviceID, limit)
+	rows, err := s.ro.Query(`SELECT at, kind, detail FROM events WHERE device_id=? ORDER BY at DESC, id DESC LIMIT ?`, deviceID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -431,7 +448,7 @@ func (s *Store) Events(deviceID int64, limit int) ([]Event, error) {
 // Sessions returns a device's online periods overlapping [since, now],
 // oldest first.
 func (s *Store) Sessions(deviceID int64, since time.Time) ([]Session, error) {
-	rows, err := s.db.Query(`SELECT start, COALESCE(end, 0) FROM sessions WHERE device_id=? AND (end IS NULL OR end >= ?) ORDER BY start`, deviceID, unix(since))
+	rows, err := s.ro.Query(`SELECT start, COALESCE(end, 0) FROM sessions WHERE device_id=? AND (end IS NULL OR end >= ?) ORDER BY start`, deviceID, unix(since))
 	if err != nil {
 		return nil, err
 	}
@@ -468,7 +485,7 @@ func (s *Store) Prune(before time.Time) (int64, error) {
 // Setting returns a stored setting, or "" when unset.
 func (s *Store) Setting(key string) (string, error) {
 	var v string
-	err := s.db.QueryRow(`SELECT value FROM settings WHERE key=?`, key).Scan(&v)
+	err := s.ro.QueryRow(`SELECT value FROM settings WHERE key=?`, key).Scan(&v)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
@@ -507,7 +524,7 @@ func (s *Store) AddAlert(a *Alert) error {
 
 // Alerts returns the newest alerts, newest first.
 func (s *Store) Alerts(limit int) ([]Alert, error) {
-	rows, err := s.db.Query(`SELECT id, at, kind, COALESCE(device_id, 0), data FROM alerts ORDER BY id DESC LIMIT ?`, limit)
+	rows, err := s.ro.Query(`SELECT id, at, kind, COALESCE(device_id, 0), data FROM alerts ORDER BY id DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -531,7 +548,7 @@ func (s *Store) Alert(id int64) (Alert, error) {
 	var a Alert
 	var at int64
 	var data string
-	err := s.db.QueryRow(`SELECT id, at, kind, COALESCE(device_id, 0), data FROM alerts WHERE id=?`, id).Scan(&a.ID, &at, &a.Kind, &a.DeviceID, &data)
+	err := s.ro.QueryRow(`SELECT id, at, kind, COALESCE(device_id, 0), data FROM alerts WHERE id=?`, id).Scan(&a.ID, &at, &a.Kind, &a.DeviceID, &data)
 	a.At, a.Data = fromUnix(at), json.RawMessage(data)
 	return a, err
 }
@@ -545,7 +562,7 @@ type DeviceSession struct {
 // AllSessions returns every device's online periods overlapping
 // [since, now].
 func (s *Store) AllSessions(since time.Time) ([]DeviceSession, error) {
-	rows, err := s.db.Query(`SELECT device_id, start, COALESCE(end, 0) FROM sessions WHERE end IS NULL OR end >= ?`, unix(since))
+	rows, err := s.ro.Query(`SELECT device_id, start, COALESCE(end, 0) FROM sessions WHERE end IS NULL OR end >= ?`, unix(since))
 	if err != nil {
 		return nil, err
 	}
