@@ -1,0 +1,24 @@
+# LanHound — zero config. `docker compose up -d`, then open http://<host>:8686
+services:
+  lanhound:
+    image: ghcr.io/playwjj/lanhound:latest
+    container_name: lanhound
+    restart: unless-stopped
+    network_mode: host # must see the LAN's broadcast domain directly
+    cap_add:
+      - NET_RAW # raw sockets for ARP; nothing else is needed
+    volumes:
+      - ./data:/data
+    environment:
+      TZ: Asia/Shanghai
+      # Everything below is optional — notifications can also be set up in the web UI.
+      # TELEGRAM_BOT_TOKEN: "123456789:AA..."
+      # TELEGRAM_CHAT_ID: "123456789"
+      # TELEGRAM_API_URL: "https://your-bot-api-proxy.example"
+      # LANHOUND_WEBHOOK_URL: "https://example.com/hook"
+      # LANHOUND_LANG: zh              # alert language: en | zh
+      # LANHOUND_PASSWORD: "change-me" # protect the web UI (basic auth)
+      # LANHOUND_LISTEN: ":8686"
+      # LANHOUND_SCAN_INTERVAL: 5m
+      # LANHOUND_INTERFACES: eth0,wlan0
+      # LANHOUND_RETENTION_DAYS: "90"

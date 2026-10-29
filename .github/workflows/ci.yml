@@ -1,0 +1,31 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Front end builds and matches the committed dist
+        run: |
+          cd web && npm ci && npm run build && cd ..
+          git diff --exit-code -- internal/web/dist || (echo "::error::internal/web/dist is stale — run 'make web' and commit" && exit 1)
+      - run: go vet ./...
+      - run: go test -race ./...
+      - name: Cross-compile
+        run: |
+          for t in linux/amd64 linux/arm64 linux/arm/7 linux/386; do
+            IFS=/ read os arch arm <<< "$t"
+            GOOS=$os GOARCH=$arch GOARM=$arm CGO_ENABLED=0 go build -o /dev/null ./cmd/lanhound
+          done
