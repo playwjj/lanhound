@@ -322,7 +322,11 @@ func scan(args []string) {
 			continue
 		}
 		if !*asJSON {
-			fmt.Printf("== %s  %s  (%d hosts) ==\n", t.Iface.Name, t.Network, len(t.Hosts))
+			via := ""
+			if t.Shim != nil {
+				via = "  via " + t.Shim.Iface.Name
+			}
+			fmt.Printf("== %s  %s  (%d hosts)%s ==\n", t.Iface.Name, t.Network, len(t.Hosts), via)
 		}
 		devices, err := scanner.Scan(t, *timeout, *rate)
 		if err != nil {

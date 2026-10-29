@@ -19,6 +19,7 @@ type fakeLAN struct {
 	macs   map[string]net.HardwareAddr
 	queue  chan []byte
 	closed bool
+	asked  []net.IP // sender IP of every ARP request written
 }
 
 func newFakeLAN(hosts map[string]net.HardwareAddr) *fakeLAN {
@@ -40,6 +41,7 @@ func (f *fakeLAN) Write(frame []byte) error {
 		return nil
 	}
 	f.mu.Lock()
+	f.asked = append(f.asked, pkt.SenderIP)
 	mac, ok := f.macs[pkt.TargetIP.String()]
 	f.mu.Unlock()
 	if !ok {
@@ -122,5 +124,73 @@ func TestWorkerAccept(t *testing.T) {
 		if ok != c.ok || (ok && (c.s.IP != nil) != c.keepIP) {
 			t.Errorf("case %d: ok=%v ip=%v", i, ok, c.s.IP)
 		}
+	}
+}
+
+func TestEngineSweepsThroughShim(t *testing.T) {
+	// The parent link hears the wire but cannot reach the host's own
+	// macvlan containers; the shim reaches both.
+	parent := newFakeLAN(map[string]net.HardwareAddr{"10.9.0.3": {0x24, 0x0a, 0xc4, 0, 0, 3}})
+	shim := newFakeLAN(map[string]net.HardwareAddr{
+		"10.9.0.3": {0x24, 0x0a, 0xc4, 0, 0, 3},
+		"10.9.0.5": {0x02, 0x42, 0x0a, 0x09, 0, 5}, // macvlan container
+	})
+	tg := testTarget()
+	tg.Shim = &netutil.Shim{Iface: net.Interface{Index: 8, Name: "mv0", HardwareAddr: net.HardwareAddr{2, 0, 0, 0, 0, 6}}, IP: net.IPv4(10, 9, 0, 6).To4()}
+	openLinkFunc = func(i net.Interface) (link, error) {
+		if i.Name == "mv0" {
+			return shim, nil
+		}
+		return parent, nil
+	}
+	targetsFunc = func([]string) ([]netutil.Target, []string) { return []netutil.Target{tg}, nil }
+	defer func() { openLinkFunc, targetsFunc = openLink, netutil.Targets }()
+
+	var mu sync.Mutex
+	got := map[string]string{}
+	e := New(Config{Rate: 1000, Window: 50 * time.Millisecond, Interval: time.Hour, DHCPProbeEvery: -1, OnSighting: func(s passive.Sighting) {
+		mu.Lock()
+		got[s.MAC.String()] = s.IP.String() + " " + s.Iface
+		mu.Unlock()
+	}})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go e.Run(ctx)
+	select {
+	case <-e.FirstRound():
+	case <-time.After(3 * time.Second):
+		t.Fatal("first round never completed")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) != 2 || got["02:42:0a:09:00:05"] != "10.9.0.5 eth9" {
+		t.Fatalf("got %v", got)
+	}
+	if len(parent.asked) != 0 {
+		t.Fatalf("parent link sent %d ARP requests, want 0", len(parent.asked))
+	}
+	// 10.9.0.2-6 minus the shim's own address, all asked from the shim.
+	if len(shim.asked) != 4 {
+		t.Fatalf("shim sent %d requests, want 4", len(shim.asked))
+	}
+	for _, ip := range shim.asked {
+		if !ip.Equal(net.IPv4(10, 9, 0, 6)) {
+			t.Fatalf("request sent from %v, want the shim's address", ip)
+		}
+	}
+	if st := e.Status(); len(st) != 1 || st[0].Interface != "eth9" || st[0].Shim != "mv0" || st[0].LastReplies != 2 {
+		t.Fatalf("status %+v", st)
+	}
+}
+
+func TestWorkerAcceptDropsShim(t *testing.T) {
+	tg := testTarget()
+	tg.Shim = &netutil.Shim{Iface: net.Interface{Name: "mv0", HardwareAddr: net.HardwareAddr{2, 0, 0, 0, 0, 6}}, IP: net.IPv4(10, 9, 0, 6).To4()}
+	w := newWorker(tg, Config{})
+	if w.accept(&passive.Sighting{MAC: net.HardwareAddr{2, 0, 0, 0, 0, 6}, IP: net.IPv4(10, 9, 0, 6)}) {
+		t.Error("the shim's own MAC must be dropped")
+	}
+	if w.accept(&passive.Sighting{MAC: net.HardwareAddr{0x24, 0, 0, 0, 0, 9}, IP: net.IPv4(10, 9, 0, 6)}) {
+		t.Error("the shim's own IP must be dropped")
 	}
 }

@@ -254,6 +254,7 @@ minute (about 11 minutes by default).
 | Bypass router / 旁路由 (same subnet) | ✅ nothing to configure: discovery reads each interface's own address/mask, not the default route |
 | Multi-homed host (wired + Wi-Fi, dual NIC) | ✅ one watcher per interface |
 | Docker / VM host | ✅ container and VM bridges (`docker0`, `br-<id>`, `virbr0`…) are skipped automatically; name one in `LANHOUND_INTERFACES` to watch it anyway |
+| Docker **macvlan** containers on the LanHound host | ✅ heard whenever they talk; add a macvlan shim to also sweep them (see FAQ) |
 | ISP modem + router double NAT (modem on 192.168.1.0/24) | ✅ via a router/modem device-table source (ARP can't cross a router) |
 | VLANs / guest networks / AP isolation | ✅ a remote probe (`lanhound agent`) per segment reports to one dashboard |
 
@@ -333,6 +334,23 @@ only genuinely new devices stand out (and alert).
 **Some devices on my network never appear.** They are on a different
 broadcast domain: another VLAN, a guest network, behind a second router, or
 isolated by the access point. Run another instance there.
+
+**My Docker macvlan containers show up late or go offline.** The Linux
+kernel never delivers frames the host sends on a NIC to that NIC's own
+macvlan children, so LanHound's ARP sweep can't reach containers on the
+same host; it only hears them when they talk. Give the host a macvlan
+"shim" on the same parent and LanHound sweeps through it automatically
+(the log says `shim=…`). Use a free address outside your DHCP pool;
+`noprefixroute` keeps the host's own traffic on eth0:
+
+```sh
+ip link add mv-shim link eth0 type macvlan mode bridge
+ip addr add 192.168.2.250/24 dev mv-shim noprefixroute
+ip link set mv-shim up
+```
+
+These commands don't survive a reboot; put them in your network config
+(netplan, `/etc/network/interfaces`, a systemd unit…).
 
 **Can it block a device?** No, by design. Block it on your router.
 

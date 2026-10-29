@@ -107,3 +107,90 @@ func TestRealLink(t *testing.T) {
 		t.Errorf("status %+v", st)
 	}
 }
+
+// TestRealMacvlan reproduces a Docker macvlan container on the scanning
+// host: frames the host sends on the parent never reach the container,
+// so it must be heard passively (its frames show up as outgoing on the
+// parent) or asked through a macvlan shim, which netutil folds into the
+// parent's target.
+func TestRealMacvlan(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("needs root to create macvlan interfaces")
+	}
+	const ns, parent, ctr, shim = "lhmv", "lhd0", "lhc0", "lhs0"
+	cleanup := func() {
+		_ = exec.Command("ip", "link", "del", parent).Run()
+		_ = exec.Command("ip", "netns", "del", ns).Run()
+	}
+	cleanup()
+	t.Cleanup(cleanup)
+	sh(t, "ip", "netns", "add", ns)
+	sh(t, "ip", "link", "add", parent, "type", "dummy")
+	sh(t, "ip", "addr", "add", "10.98.0.1/24", "dev", parent)
+	sh(t, "ip", "link", "set", parent, "up")
+	sh(t, "ip", "link", "add", ctr, "link", parent, "type", "macvlan", "mode", "bridge")
+	sh(t, "ip", "link", "set", ctr, "netns", ns)
+	sh(t, "ip", "netns", "exec", ns, "ip", "addr", "add", "10.98.0.2/24", "dev", ctr)
+	sh(t, "ip", "netns", "exec", ns, "ip", "link", "set", ctr, "up")
+	ctrMAC := sh(t, "ip", "netns", "exec", ns, "cat", "/sys/class/net/"+ctr+"/address")
+
+	run := func(t *testing.T, chatter bool) (found map[string]bool, st []Status) {
+		t.Helper()
+		var mu sync.Mutex
+		found = map[string]bool{}
+		e := New(Config{
+			Only: []string{parent}, Interval: time.Hour, Window: 2 * time.Second, Rate: 1000, DHCPProbeEvery: -1,
+			OnSighting: func(s passive.Sighting) {
+				if s.MAC.String() == ctrMAC && s.IP != nil && s.IP.Equal(net.ParseIP("10.98.0.2")) {
+					mu.Lock()
+					found[s.Source+" "+s.Iface] = true
+					mu.Unlock()
+				}
+			},
+		})
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go e.Run(ctx)
+		if chatter {
+			// The container ARPs for its gateway; nobody answers.
+			go func() {
+				time.Sleep(500 * time.Millisecond)
+				_ = exec.Command("ip", "netns", "exec", ns, "ping", "-c", "1", "-W", "1", "10.98.0.254").Run()
+			}()
+		}
+		select {
+		case <-e.FirstRound():
+		case <-time.After(30 * time.Second):
+			t.Fatal("first sweep never finished")
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		return found, e.Status()
+	}
+
+	t.Run("passive", func(t *testing.T) {
+		found, st := run(t, true)
+		if found["arp-reply "+parent] {
+			t.Error("the parent's own sweep reached its macvlan child; the premise of the shim is wrong")
+		}
+		if !found["arp "+parent] {
+			t.Errorf("container's ARP request was not heard on the parent: %v", found)
+		}
+		if len(st) != 1 || st[0].Shim != "" {
+			t.Errorf("status %+v", st)
+		}
+	})
+
+	t.Run("shim", func(t *testing.T) {
+		sh(t, "ip", "link", "add", shim, "link", parent, "type", "macvlan", "mode", "bridge")
+		sh(t, "ip", "addr", "add", "10.98.0.3/24", "dev", shim)
+		sh(t, "ip", "link", "set", shim, "up")
+		found, st := run(t, false)
+		if !found["arp-reply "+parent] {
+			t.Errorf("sweep through the shim did not find the container: %v", found)
+		}
+		if len(st) != 1 || st[0].Interface != parent || st[0].Shim != shim || st[0].Error != "" {
+			t.Errorf("status %+v", st)
+		}
+	})
+}

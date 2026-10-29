@@ -152,6 +152,7 @@ docker run -d --name lanhound-agent --restart unless-stopped --network host --ca
 | 旁路由（同网段） | ✅ 无需任何配置：网段只按网卡地址/掩码判定，与默认网关指向谁无关 |
 | 多网卡主机（有线 + Wi-Fi、双网口） | ✅ 每个网卡各一个监听 |
 | 跑着 Docker / 虚拟机的主机 | ✅ 自动跳过容器和虚拟机网桥（`docker0`、`br-<id>`、`virbr0` 等）；确实要看守的话写进 `LANHOUND_INTERFACES` |
+| 和 LanHound 同一台主机上的 Docker **macvlan** 容器 | ✅ 容器一发包就能听到；再加一个 macvlan shim 还能主动扫到（见常见问题） |
 | 光猫 + 路由器双层 NAT（光猫在 192.168.1.0/24） | ✅ 通过路由器 / 光猫设备表数据源（ARP 过不了路由器） |
 | VLAN / 访客网络 / AP 隔离 | ✅ 每个网段放一个远程探针（`lanhound agent`），汇总到同一个面板 |
 
@@ -196,6 +197,16 @@ sudo setcap cap_net_raw+ep ./lanhound   # 唯一需要的权限
 **装完之后所有设备都是“新设备”？** 正常，LanHound 不知道哪些是你家的。点一次**全部标记为已认识**，之后只有真正的新设备才会被标出（并报警）。
 
 **有些设备一直扫不到？** 它们在另一个广播域：其他 VLAN、访客网络、二级路由后面，或被 AP 隔离。在那个网段再部署一个实例。
+
+**同一台主机上的 Docker macvlan 容器发现得慢，或者时不时显示离线？** Linux 内核不会把宿主机从某张网卡发出的帧交给这张网卡自己的 macvlan 子接口，所以 LanHound 的 ARP 扫描到不了同主机上的 macvlan 容器，只能等它们自己发包时听到。给宿主机在同一张父网卡上建一个 macvlan「shim」，LanHound 会自动经它扫描（日志里会出现 `shim=…`）。地址请选 DHCP 地址池以外的空闲地址；`noprefixroute` 让宿主机自己的流量照旧走 eth0：
+
+```sh
+ip link add mv-shim link eth0 type macvlan mode bridge
+ip addr add 192.168.2.250/24 dev mv-shim noprefixroute
+ip link set mv-shim up
+```
+
+这些命令重启后失效，需要写进网络配置（netplan、`/etc/network/interfaces`、systemd 单元等）。
 
 **能把设备踢下线吗？** 不能，这是有意的设计。请在路由器上拉黑。
 

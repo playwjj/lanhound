@@ -69,6 +69,7 @@ type Status struct {
 	Network     string    `json:"network"`
 	IP          string    `json:"ip"`
 	MAC         string    `json:"mac"`
+	Shim        string    `json:"shim,omitempty"` // macvlan interface the sweep is sent from
 	Hosts       int       `json:"hosts"`
 	Sweeping    bool      `json:"sweeping"`
 	LastSweep   time.Time `json:"lastSweep"`
@@ -160,6 +161,9 @@ func (e *Engine) refresh(ctx context.Context) []*worker {
 			continue
 		}
 		key := t.Iface.Name + "|" + t.Network.String() + "|" + t.IP.String()
+		if t.Shim != nil {
+			key += "|" + t.Shim.Iface.Name
+		}
 		seen[key] = true
 		if _, ok := e.workers[key]; ok {
 			continue
@@ -167,7 +171,11 @@ func (e *Engine) refresh(ctx context.Context) []*worker {
 		w := newWorker(t, e.cfg)
 		e.workers[key] = w
 		started = append(started, w)
-		lg().Info("watching interface", "iface", t.Iface.Name, "network", t.Network.String(), "hosts", len(t.Hosts))
+		if t.Shim != nil {
+			lg().Info("watching interface", "iface", t.Iface.Name, "network", t.Network.String(), "hosts", len(t.Hosts), "shim", t.Shim.Iface.Name)
+		} else {
+			lg().Info("watching interface", "iface", t.Iface.Name, "network", t.Network.String(), "hosts", len(t.Hosts))
+		}
 		go w.run(ctx)
 	}
 	for key, w := range e.workers {
@@ -253,7 +261,7 @@ type worker struct {
 }
 
 func newWorker(t netutil.Target, cfg Config) *worker {
-	return &worker{
+	w := &worker{
 		t:         t,
 		cfg:       cfg,
 		trigger:   make(chan struct{}, 1),
@@ -266,6 +274,10 @@ func newWorker(t netutil.Target, cfg Config) *worker {
 			Hosts:     len(t.Hosts),
 		},
 	}
+	if t.Shim != nil {
+		w.st.Shim = t.Shim.Iface.Name
+	}
+	return w
 }
 
 func (w *worker) status() Status {
@@ -324,6 +336,12 @@ func (w *worker) run(parent context.Context) {
 	w.update(func(s *Status) { s.Error = "" })
 
 	go w.listen(ctx, l)
+	sweepLink := l
+	if sl := w.openShim(); sl != nil {
+		defer sl.Close()
+		go w.listen(ctx, sl)
+		sweepLink = sl
+	}
 
 	timer := time.NewTimer(0) // first sweep right away
 	defer timer.Stop()
@@ -342,7 +360,7 @@ func (w *worker) run(parent context.Context) {
 				failures.Fail(lg(), "dhcp:"+w.t.Iface.Name, "DHCP probe failed", err, "iface", w.t.Iface.Name)
 			}
 		}
-		w.sweep(ctx, l)
+		w.sweep(ctx, l, sweepLink)
 		w.markFirstDone()
 		if !timer.Stop() {
 			select {
@@ -354,9 +372,24 @@ func (w *worker) run(parent context.Context) {
 	}
 }
 
-// sweep ARP-asks every host once, paced at cfg.Rate, then waits
-// cfg.Window for stragglers.
-func (w *worker) sweep(ctx context.Context, l link) {
+// openShim opens the target's shim interface, or returns nil when there
+// is none or it cannot be opened (the sweep then goes out on the main
+// link and simply cannot reach this host's macvlan containers).
+func (w *worker) openShim() link {
+	if w.t.Shim == nil {
+		return nil
+	}
+	sl, err := openLinkFunc(w.t.Shim.Iface)
+	if err != nil {
+		failures.Fail(lg(), "open:"+w.t.Shim.Iface.Name, "cannot open shim, sweeping without it", err, "iface", w.t.Iface.Name, "shim", w.t.Shim.Iface.Name)
+		return nil
+	}
+	return sl
+}
+
+// sweep ARP-asks every host once through arpLink (the shim when there
+// is one), paced at cfg.Rate, then waits cfg.Window for stragglers.
+func (w *worker) sweep(ctx context.Context, l, arpLink link) {
 	w.mu.Lock()
 	w.replies = map[string]bool{}
 	w.mu.Unlock()
@@ -370,7 +403,7 @@ func (w *worker) sweep(ctx context.Context, l link) {
 		}
 	}
 
-	err := sendRequests(ctx, l, w.t, w.cfg.Rate)
+	err := sendRequests(ctx, arpLink, w.t, arpLink != l, w.cfg.Rate)
 	if err == nil {
 		select {
 		case <-ctx.Done():
@@ -437,8 +470,11 @@ func (w *worker) accept(s *passive.Sighting) bool {
 	if s.MAC.String() == w.t.Iface.HardwareAddr.String() {
 		return false
 	}
+	if sh := w.t.Shim; sh != nil && s.MAC.String() == sh.Iface.HardwareAddr.String() {
+		return false
+	}
 	if s.IP != nil {
-		if s.IP.Equal(w.t.IP) {
+		if s.IP.Equal(w.t.IP) || (w.t.Shim != nil && s.IP.Equal(w.t.Shim.IP)) {
 			return false
 		}
 		if !w.t.Network.Contains(s.IP) {
@@ -487,12 +523,20 @@ func isZero(b []byte) bool {
 	return true
 }
 
-// sendRequests ARP-asks for every host in the target, paced by a ticker.
-func sendRequests(ctx context.Context, l link, t netutil.Target, ratePerSec int) error {
+// sendRequests ARP-asks for every host in the target, paced by a ticker,
+// from the shim's address when viaShim is set.
+func sendRequests(ctx context.Context, l link, t netutil.Target, viaShim bool, ratePerSec int) error {
+	srcMAC, srcIP := t.Iface.HardwareAddr, t.IP
+	if viaShim {
+		srcMAC, srcIP = t.Shim.Iface.HardwareAddr, t.Shim.IP
+	}
 	ticker := time.NewTicker(time.Second / time.Duration(ratePerSec))
 	defer ticker.Stop()
 	for _, host := range t.Hosts {
-		frame, err := arp.BuildRequest(t.Iface.HardwareAddr, t.IP, host)
+		if host.Equal(srcIP) {
+			continue
+		}
+		frame, err := arp.BuildRequest(srcMAC, srcIP, host)
 		if err != nil {
 			return err
 		}
@@ -553,14 +597,24 @@ func Scan(t netutil.Target, timeout time.Duration, ratePerSec int) ([]Device, er
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	done := make(chan struct{})
-	go func() { w.listen(ctx, l); close(done) }()
-	err = sendRequests(ctx, l, t, ratePerSec)
+	var wg sync.WaitGroup
+	listen := func(l link) {
+		wg.Add(1)
+		go func() { defer wg.Done(); w.listen(ctx, l) }()
+	}
+	listen(l)
+	arpLink := l
+	if sl := w.openShim(); sl != nil {
+		defer sl.Close()
+		listen(sl)
+		arpLink = sl
+	}
+	err = sendRequests(ctx, arpLink, t, arpLink != l, ratePerSec)
 	if err == nil {
 		time.Sleep(timeout)
 	}
 	cancel()
-	<-done
+	wg.Wait()
 
 	out := make([]Device, 0, len(found))
 	for _, d := range found {

@@ -6,7 +6,10 @@ package netutil
 import (
 	"encoding/binary"
 	"net"
+	"os"
+	"path/filepath"
 	"regexp"
+	"strings"
 )
 
 // MaxHosts caps the scan size per interface. Larger networks are skipped
@@ -19,6 +22,19 @@ type Target struct {
 	IP      net.IP     // our IPv4 address on this interface
 	Network *net.IPNet // the subnet
 	Hosts   []net.IP   // every usable host address except our own
+
+	// Shim is a macvlan interface the host has on Iface in the same
+	// subnet, or nil. The kernel never delivers frames the host sends
+	// on Iface to Iface's own macvlan children (Docker macvlan
+	// containers), but a sibling macvlan in bridge mode reaches them:
+	// sweeping from the shim is the only way to ask them directly.
+	Shim *Shim
+}
+
+// Shim is the macvlan interface a Target sweeps from.
+type Shim struct {
+	Iface net.Interface
+	IP    net.IP
 }
 
 // virtualIface matches bridges and links that container and VM runtimes
@@ -73,7 +89,63 @@ func Targets(include []string) (targets []Target, skipped []string) {
 			targets = append(targets, Target{Iface: iface, IP: ip4, Network: network, Hosts: hosts})
 		}
 	}
-	return targets, skipped
+	return foldShims(targets), skipped
+}
+
+// macvlanParentFunc is swapped out in tests.
+var macvlanParentFunc = macvlanParent
+
+// macvlanParent returns the interface a macvlan interface sits on, or ""
+// when name is not one (or this is not Linux). Older kernels put no
+// DEVTYPE in sysfs, so a macvlan is recognised by its shape: stacked on
+// exactly one lower device, not a bridge or bond, and with a MAC of its
+// own — which also rules out VLANs and ipvlans, whose frames carry the
+// parent's MAC and so could never be told apart from the host's own.
+func macvlanParent(name string) string {
+	dir := filepath.Join("/sys/class/net", name)
+	for _, sub := range []string{"bridge", "bonding"} {
+		if _, err := os.Stat(filepath.Join(dir, sub)); err == nil {
+			return ""
+		}
+	}
+	lower, _ := filepath.Glob(filepath.Join(dir, "lower_*"))
+	if len(lower) != 1 {
+		return ""
+	}
+	mac, err1 := os.ReadFile(filepath.Join(dir, "address"))
+	parentMAC, err2 := os.ReadFile(filepath.Join(lower[0], "address"))
+	if err1 != nil || err2 != nil || string(mac) == string(parentMAC) {
+		return ""
+	}
+	return strings.TrimPrefix(filepath.Base(lower[0]), "lower_")
+}
+
+// foldShims turns a macvlan target with an address in its parent's
+// subnet (whatever its own mask, often /32) into that parent's Shim, so the segment is still watched once and under
+// the parent's name.
+func foldShims(targets []Target) []Target {
+	folded := map[int]bool{}
+	for i, t := range targets {
+		parent := macvlanParentFunc(t.Iface.Name)
+		if parent == "" {
+			continue
+		}
+		for j := range targets {
+			p := &targets[j]
+			if j != i && !folded[j] && p.Shim == nil && p.Iface.Name == parent && p.Network.Contains(t.IP) {
+				p.Shim = &Shim{Iface: t.Iface, IP: t.IP}
+				folded[i] = true
+				break
+			}
+		}
+	}
+	var out []Target
+	for i, t := range targets {
+		if !folded[i] {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // hostList returns the usable host addresses of ipnet except self.

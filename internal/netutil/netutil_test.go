@@ -56,3 +56,30 @@ wlan0	00000000	FE02A8C0	0003	0	0	600	00000000	0	0	0
 		t.Fatalf("got %v", got)
 	}
 }
+
+func TestFoldShims(t *testing.T) {
+	macvlanParentFunc = func(name string) string {
+		if name == "mv-shim" || name == "mv-other" {
+			return "eth0"
+		}
+		return ""
+	}
+	defer func() { macvlanParentFunc = macvlanParent }()
+	lan := &net.IPNet{IP: net.IPv4(192, 168, 2, 0).To4(), Mask: net.CIDRMask(24, 32)}
+	other := &net.IPNet{IP: net.IPv4(10, 1, 0, 0).To4(), Mask: net.CIDRMask(24, 32)}
+	got := foldShims([]Target{
+		{Iface: net.Interface{Name: "mv-shim"}, IP: net.IPv4(192, 168, 2, 250).To4(), Network: &net.IPNet{IP: net.IPv4(192, 168, 2, 250).To4(), Mask: net.CIDRMask(32, 32)}},
+		{Iface: net.Interface{Name: "eth0"}, IP: net.IPv4(192, 168, 2, 22).To4(), Network: lan},
+		{Iface: net.Interface{Name: "mv-other"}, IP: net.IPv4(10, 1, 0, 5).To4(), Network: other}, // different subnet: its own target
+		{Iface: net.Interface{Name: "wlan0"}, IP: net.IPv4(192, 168, 2, 30).To4(), Network: lan},
+	})
+	if len(got) != 3 || got[0].Iface.Name != "eth0" || got[1].Iface.Name != "mv-other" || got[2].Iface.Name != "wlan0" {
+		t.Fatalf("targets %+v", got)
+	}
+	if got[0].Shim == nil || got[0].Shim.Iface.Name != "mv-shim" || !got[0].Shim.IP.Equal(net.IPv4(192, 168, 2, 250)) {
+		t.Fatalf("eth0 shim %+v", got[0].Shim)
+	}
+	if got[1].Shim != nil || got[2].Shim != nil {
+		t.Fatal("only eth0 has a shim")
+	}
+}

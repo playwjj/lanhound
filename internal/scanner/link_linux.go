@@ -3,6 +3,7 @@
 package scanner
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -29,6 +30,7 @@ func htons(i uint16) uint16 { return i<<8 | i>>8 }
 type rawLink struct {
 	fd      int
 	ifindex int
+	mac     net.HardwareAddr
 }
 
 func openLink(iface net.Interface) (link, error) {
@@ -36,7 +38,7 @@ func openLink(iface net.Interface) (link, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open raw socket (needs CAP_NET_RAW): %w", err)
 	}
-	l := &rawLink{fd: fd, ifindex: iface.Index}
+	l := &rawLink{fd: fd, ifindex: iface.Index, mac: iface.HardwareAddr}
 	if err := l.setup(); err != nil {
 		unix.Close(fd)
 		return nil, fmt.Errorf("%s: %w", iface.Name, err)
@@ -79,9 +81,12 @@ func (l *rawLink) Read(buf []byte) (int, bool, error) {
 		}
 		return 0, false, err
 	}
+	// Macvlan containers on this host transmit through the parent
+	// interface, so their frames show up here as PACKET_OUTGOING too.
+	// Only frames carrying our own source MAC are really ours.
 	outgoing := false
 	if ll, ok := from.(*unix.SockaddrLinklayer); ok && ll.Pkttype == unix.PACKET_OUTGOING {
-		outgoing = true
+		outgoing = n < 12 || bytes.Equal(buf[6:12], l.mac)
 	}
 	return n, outgoing, nil
 }
