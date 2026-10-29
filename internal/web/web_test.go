@@ -17,6 +17,7 @@ import (
 	"github.com/playwjj/lanhound/internal/notify"
 	"github.com/playwjj/lanhound/internal/passive"
 	"github.com/playwjj/lanhound/internal/scanner"
+	"github.com/playwjj/lanhound/internal/security"
 	"github.com/playwjj/lanhound/internal/store"
 )
 
@@ -178,3 +179,51 @@ func TestStaticFallback(t *testing.T) {
 }
 
 func itoa(i int64) string { return strconv.FormatInt(i, 10) }
+
+type fakeGuard struct{ trusted []string }
+
+func (f *fakeGuard) Gateways() map[string][]string {
+	return map[string][]string{"eth0": {"192.168.2.1"}}
+}
+func (f *fakeGuard) TrustDHCP(iface, key string) error {
+	f.trusted = append(f.trusted, iface+" "+key)
+	return nil
+}
+
+func TestAlertsAPI(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "a.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	set, _ := core.NewSettings(st, notify.Settings{})
+	hub := core.NewHub()
+	reg, _ := core.NewRegistry(core.Options{Store: st, Hub: hub, Settings: set})
+	g := &fakeGuard{}
+	ts := httptest.NewServer((&Server{Registry: reg, Settings: set, Hub: hub, Scanner: &fakeScanner{}, Security: g}).Handler())
+	defer ts.Close()
+
+	rogue, _ := net.ParseMAC("e4:95:6e:40:11:22")
+	reg.RaiseFinding(security.Finding{Event: notify.EventRogueDHCP, Interface: "eth0", IP: net.IPv4(192, 168, 8, 1), MACs: []net.HardwareAddr{rogue}, Key: "192.168.8.1/e4:95:6e:40:11:22"})
+	reg.RaiseFinding(security.Finding{Event: notify.EventARPFlood, Interface: "eth0", MACs: []net.HardwareAddr{rogue}, Count: 20})
+
+	var list []store.Alert
+	_ = json.NewDecoder(do(t, "GET", ts.URL+"/api/alerts", "", nil).Body).Decode(&list)
+	if len(list) != 2 || list[0].Kind != notify.EventARPFlood {
+		t.Fatalf("alerts %+v", list)
+	}
+	if r := do(t, "POST", ts.URL+"/api/alerts/"+itoa(list[0].ID)+"/trust", "", csrf); r.StatusCode != 400 {
+		t.Fatalf("trusting a non-DHCP alert: %d", r.StatusCode)
+	}
+	if r := do(t, "POST", ts.URL+"/api/alerts/"+itoa(list[1].ID)+"/trust", "", csrf); r.StatusCode != 200 {
+		t.Fatalf("trust: %d", r.StatusCode)
+	}
+	if len(g.trusted) != 1 || g.trusted[0] != "eth0 192.168.8.1/e4:95:6e:40:11:22" {
+		t.Fatalf("trusted %v", g.trusted)
+	}
+	var st2 Status
+	_ = json.NewDecoder(do(t, "GET", ts.URL+"/api/status", "", nil).Body).Decode(&st2)
+	if st2.Gateways["eth0"][0] != "192.168.2.1" {
+		t.Fatalf("gateways %v", st2.Gateways)
+	}
+}

@@ -61,10 +61,20 @@ const test = () => act(() => api.testSettings(form.value), t('testOk'))
     </header>
 
     <form v-if="form" class="body" @submit.prevent="save">
-      <label class="check">
-        <input v-model="form.notifyNew" type="checkbox" />
-        <span>{{ t('notifyNew') }}</span>
-      </label>
+      <div class="checks">
+        <label class="check">
+          <input v-model="form.notifyNew" type="checkbox" />
+          <span>{{ t('notifyNew') }}</span>
+        </label>
+        <label class="check">
+          <input v-model="form.notifySecurity" type="checkbox" />
+          <span>{{ t('notifySecurity') }}</span>
+        </label>
+        <label class="check">
+          <input v-model="form.notifyCritical" type="checkbox" />
+          <span>{{ t('notifyCritical') }}</span>
+        </label>
+      </div>
 
       <label class="field">
         <span class="label">{{ t('alertLang') }}</span>
@@ -184,6 +194,10 @@ legend {
 .help {
   font-size: 12px;
   color: var(--muted);
+}
+.checks {
+  display: grid;
+  gap: 6px;
 }
 .check {
   display: flex;

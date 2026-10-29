@@ -61,6 +61,14 @@ docker compose up -d
 - **A live, friendly web UI.** Updates stream in real time. Search and
   filter, rename inline, mark devices as known, add notes. It works on a
   phone, in English and 中文.
+- **Security alerts** (detect and report only):
+  - **ARP spoofing / IP conflicts**: two MACs claiming one IP at the same time. This is flagged as critical when the IP is your gateway.
+  - **ARP floods**: a burst of unsolicited ARP from one device.
+  - **Gateway MAC change**: the default route's router suddenly answers from a different MAC.
+  - **Rogue DHCP servers**: a second device handing out addresses, very often a bypass router with DHCP left on.
+  - **Critical devices**: mark your NAS or camera as critical and get told when it goes offline and when it comes back.
+
+  Every alert lands in the in-app alert log (🔔), notifications or not.
 - **Multi-interface.** Wired + Wi-Fi or dual-NIC hosts get one watcher
   per broadcast domain, and devices are grouped by interface. Interfaces
   that come and go are followed automatically.
@@ -92,6 +100,22 @@ Open **Settings** (⚙) in the web UI, paste a Telegram bot token
 incoming webhooks work as-is. If `api.telegram.org` is unreachable from
 your network, set a Bot API proxy URL in Settings, or set `HTTPS_PROXY`.
 
+<p align="center">
+  <img src="docs/screenshot-alerts.png" alt="Alert log" width="640">
+</p>
+
+### What the security checks can and can't see
+
+On a switched network a host only receives broadcasts and traffic sent
+to it. LanHound catches ARP spoofing when the attacker poisons the whole
+segment (the default mode of common tools) or poisons the LanHound host.
+Spoofing aimed only at two *other* machines is invisible to any passive
+observer; the gateway-MAC and DHCP checks work regardless. To find DHCP
+servers LanHound broadcasts a DHCPDISCOVER every 30 minutes and never
+follows up with a request, so no lease is taken. Set
+`LANHOUND_DHCP_PROBE=off` to disable it. The first DHCP server seen is
+trusted; trust others from the alert with one click.
+
 ## Configuration
 
 None required. For the few who want to override something, everything is
@@ -106,6 +130,7 @@ the UI shows them as locked.
 | `LANHOUND_INTERFACES` | all | Comma-separated interfaces to watch |
 | `LANHOUND_SCAN_RATE` | `300` | Max ARP requests per second per interface |
 | `LANHOUND_RETENTION_DAYS` | `90` | History retention |
+| `LANHOUND_DHCP_PROBE` | `30m` | DHCP server probe interval, or `off` |
 | `LANHOUND_PASSWORD` | — | Protect the UI with HTTP basic auth (any username) |
 | `LANHOUND_LANG` | `en` | Alert language: `en` or `zh` |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | — | Telegram alerts |
@@ -135,7 +160,8 @@ Only run LanHound on networks you own or are authorized to monitor.
   never configured.
 - **Sentinel, not soldier.** LanHound sends only ordinary ARP requests
   from the host's own IP/MAC (plus a reverse-DNS lookup and a NetBIOS name
-  query for devices that never said their name) and otherwise listens. No
+  query for devices that never said their name, and a DHCPDISCOVER every
+  30 minutes to spot rogue DHCP servers) and otherwise listens. No
   ARP spoofing, no gratuitous ARP, no deauth, no "kicking" devices.
   Enforcement belongs to your router.
 - **Small.** One static binary (pure Go, no cgo) with the UI embedded.
@@ -206,11 +232,11 @@ isolated by the access point. Run another instance there.
 
 ## Roadmap
 
-- **v0.1 (this)**: discovery engine, history, web UI, new-device alerts
-- **Next**: security alerts (ARP-spoof detection, gateway MAC change,
-  rogue DHCP server, critical device offline), randomized-MAC
-  fingerprinting, IPv6 discovery, modem/router device-table import, presence
-  heat maps
+- **v0.1**: discovery engine, history, web UI, new-device alerts
+- **v0.2 (this)**: security alerts (ARP spoofing/conflicts, ARP floods,
+  gateway MAC change, rogue DHCP), critical devices, alert log, CSV export
+- **Next**: randomized-MAC fingerprinting, modem/router device-table
+  import, IPv6 discovery, presence heat maps
 
 ## License
 

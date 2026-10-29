@@ -67,6 +67,7 @@ async function run(fn) {
 }
 
 const saveNote = () => run(async () => upsert(await api.patch(props.device.id, { note: note.value })))
+const toggleCritical = () => run(async () => upsert(await api.patch(props.device.id, { critical: !props.device.critical })))
 const toggleKnown = () => run(async () => upsert(await api.patch(props.device.id, { known: !props.device.known })))
 const merge = (into) =>
   run(async () => {
@@ -134,6 +135,14 @@ const days = computed(() => {
         <span v-if="!device.known" class="badge new">{{ t('new') }}</span>
         <span v-else class="muted small">{{ t('known') }} ✓</span>
       </div>
+
+      <label class="crit">
+        <input type="checkbox" :checked="device.critical" :disabled="busy" @change="toggleCritical" />
+        <span>
+          <strong>{{ t('critical') }}</strong>
+          <span class="muted small"> — {{ t('criticalHelp') }}</span>
+        </span>
+      </label>
 
       <dl class="facts">
         <dt>{{ t('ip') }}</dt>
@@ -282,6 +291,13 @@ const days = computed(() => {
   align-items: center;
   gap: 10px;
   margin-bottom: 14px;
+}
+.crit {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 14px;
+  cursor: pointer;
 }
 .facts {
   display: grid;

@@ -33,7 +33,8 @@ const mask = "••••••"
 
 // NewSettings loads stored settings and applies env overrides.
 func NewSettings(st *store.Store, env notify.Settings) (*Settings, error) {
-	s := &Settings{store: st, env: env, cur: notify.Settings{NotifyNew: true}}
+	// Defaults for switches missing from older stored settings.
+	s := &Settings{store: st, env: env, cur: notify.Settings{NotifyNew: true, NotifySecurity: true, NotifyCritical: true}}
 	raw, err := st.Setting(settingsKey)
 	if err != nil {
 		return nil, err

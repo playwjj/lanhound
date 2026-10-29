@@ -47,6 +47,7 @@ function subtitle(d) {
         <span class="name-line">
           <InlineName :device="d" />
           <span v-if="!d.known" class="badge new">{{ t('new') }}</span>
+          <span v-if="d.critical" class="badge crit" :title="t('criticalHelp')">{{ t('criticalBadge') }}</span>
           <span v-if="d.sameNameAs && state.devices[d.sameNameAs]" class="badge random same" :title="t('sameName', { name: state.devices[d.sameNameAs].name || state.devices[d.sameNameAs].hostname })">
             <Icon name="merge" :size="11" />{{ t('sameNameBadge') }}
           </span>
@@ -135,6 +136,10 @@ function subtitle(d) {
   align-items: center;
   gap: 6px;
   min-width: 0;
+}
+.crit {
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 .same {
   gap: 3px;

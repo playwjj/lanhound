@@ -20,12 +20,37 @@ import (
 const (
 	EventNewDevice = "new_device"
 	EventTest      = "test"
+
+	// Security alerts: detection only, LanHound never fights back.
+	EventARPConflict    = "arp_conflict"    // one IP claimed by two MACs at once
+	EventARPFlood       = "arp_flood"       // burst of unsolicited ARP from one MAC
+	EventGatewayChanged = "gateway_changed" // the default gateway answers from a new MAC
+	EventRogueDHCP      = "rogue_dhcp"      // an unexpected DHCP server answered
+
+	// Devices marked critical.
+	EventDeviceOffline = "device_offline"
+	EventDeviceOnline  = "device_online"
 )
+
+// Category groups events for the per-category notification switches.
+func Category(event string) string {
+	switch event {
+	case EventNewDevice:
+		return "new"
+	case EventDeviceOffline, EventDeviceOnline:
+		return "critical"
+	case EventTest:
+		return "test"
+	}
+	return "security"
+}
 
 // Settings configures delivery. Empty fields disable a channel.
 type Settings struct {
 	Language       string `json:"language"` // "en" or "zh"
 	NotifyNew      bool   `json:"notifyNew"`
+	NotifySecurity bool   `json:"notifySecurity"`
+	NotifyCritical bool   `json:"notifyCritical"`
 	TelegramToken  string `json:"telegramToken"`
 	TelegramChatID string `json:"telegramChatId"`
 	TelegramAPI    string `json:"telegramApi"` // Bot API base URL, for self-hosted proxies
@@ -38,12 +63,25 @@ const DefaultTelegramAPI = "https://api.telegram.org"
 // Telegram reports whether the Telegram channel is configured.
 func (s Settings) Telegram() bool { return s.TelegramToken != "" && s.TelegramChatID != "" }
 
+// Wants reports whether alerts of this event's category are switched on.
+func (s Settings) Wants(event string) bool {
+	switch Category(event) {
+	case "new":
+		return s.NotifyNew
+	case "critical":
+		return s.NotifyCritical
+	case "security":
+		return s.NotifySecurity
+	}
+	return true
+}
+
 // Configured reports whether any channel is set up.
 func (s Settings) Configured() bool { return s.Telegram() || s.WebhookURL != "" }
 
 // DeviceInfo describes one device in an alert.
 type DeviceInfo struct {
-	ID         int64     `json:"id"`
+	ID         int64     `json:"id,omitempty"` // 0 for a MAC LanHound has no device record for
 	Name       string    `json:"name,omitempty"`
 	Hostname   string    `json:"hostname,omitempty"`
 	Vendor     string    `json:"vendor,omitempty"`
@@ -56,10 +94,25 @@ type DeviceInfo struct {
 	SameNameAs string    `json:"sameNameAs,omitempty"` // an existing device with the same hostname
 }
 
-// Message is one alert.
+// Message is one alert. Which fields are set depends on Event:
+//
+//	new_device       Devices (one or more new devices)
+//	arp_conflict     IP, Gateway, Devices (the claimants: established first)
+//	arp_flood        Devices (the sender), Count, Seconds
+//	gateway_changed  IP, Devices (old MAC, new MAC)
+//	rogue_dhcp       IP (server identifier), Devices (the server), Trusted (known servers), Key
+//	device_offline   Devices (the device)
+//	device_online    Devices (the device), Seconds (how long it was gone)
 type Message struct {
-	Event   string       `json:"event"`
-	Devices []DeviceInfo `json:"devices"`
+	Event     string       `json:"event"`
+	Interface string       `json:"interface,omitempty"`
+	IP        string       `json:"ip,omitempty"`
+	Gateway   bool         `json:"gateway,omitempty"`
+	Count     int          `json:"count,omitempty"`
+	Seconds   int64        `json:"seconds,omitempty"`
+	Trusted   []string     `json:"trusted,omitempty"`
+	Key       string       `json:"key,omitempty"` // rogue_dhcp: what to pass to "trust this server"
+	Devices   []DeviceInfo `json:"devices"`
 }
 
 var client = &http.Client{Timeout: 15 * time.Second}

@@ -57,6 +57,13 @@ func TestDecodeARP(t *testing.T) {
 	if len(got) != 1 || got[0].Source != SrcARP || !got[0].IP.Equal(devIP) || got[0].MAC.String() != devMAC.String() {
 		t.Fatalf("got %+v", got)
 	}
+	if got[0].Gratuitous {
+		t.Fatal("ordinary request flagged gratuitous")
+	}
+	garp, _ := arp.BuildRequest(devMAC, devIP, devIP)
+	if got := Decode(garp); !got[0].Gratuitous {
+		t.Fatal("gratuitous ARP not flagged")
+	}
 	probe, _ := arp.BuildRequest(devMAC, net.IPv4zero, net.IPv4(192, 168, 2, 9))
 	if got := Decode(probe); len(got) != 1 || got[0].IP != nil {
 		t.Fatalf("ARP probe should yield a MAC-only sighting, got %+v", got)
@@ -77,10 +84,13 @@ func TestDecodeDHCPRequestHostname(t *testing.T) {
 
 func TestDecodeDHCPAck(t *testing.T) {
 	server := net.HardwareAddr{0x8c, 0x3b, 0xad, 0, 0, 1}
-	msg := bootpMsg(2, devMAC, devIP, opt(optMsgType, dhcpAck))
+	msg := bootpMsg(2, devMAC, devIP, opt(optMsgType, dhcpAck), opt(optServerID, 192, 168, 2, 1))
 	got := Decode(udpFrame(server, net.IPv4(192, 168, 2, 1), 67, 68, msg))
 	if len(got) != 2 {
 		t.Fatalf("want server + client sightings, got %+v", got)
+	}
+	if !got[0].DHCPServer || !got[0].DHCPServerID.Equal(net.IPv4(192, 168, 2, 1)) || got[1].DHCPServer {
+		t.Fatalf("server sighting not flagged: %+v", got[0])
 	}
 	if !got[1].IP.Equal(devIP) || got[1].MAC.String() != devMAC.String() {
 		t.Fatalf("client sighting wrong: %+v", got[1])
@@ -175,5 +185,20 @@ func TestDecodeIgnoresOtherTraffic(t *testing.T) {
 func TestCleanName(t *testing.T) {
 	if got := cleanName("ab\x01c. \x00junk"); got != "abc" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestBuildDHCPDiscover(t *testing.T) {
+	frame := BuildDHCPDiscover(devMAC, 0xdeadbeef)
+	if ipChecksum(frame[14:34]) != 0 {
+		t.Fatal("bad IPv4 header checksum")
+	}
+	got := Decode(frame)
+	if len(got) != 1 || got[0].Source != SrcDHCP || got[0].MAC.String() != devMAC.String() || got[0].IP != nil {
+		t.Fatalf("our own discover should decode as a DHCP client sighting: %+v", got)
+	}
+	m, ok := parseBOOTP(frame[42:])
+	if !ok || m.options[optMsgType][0] != 1 || frame[42+10] != 0x80 {
+		t.Fatal("not a broadcast DHCPDISCOVER")
 	}
 }

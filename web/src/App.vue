@@ -8,6 +8,7 @@ import Icon from './components/Icon.vue'
 import DeviceList from './components/DeviceList.vue'
 import DeviceDrawer from './components/DeviceDrawer.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
+import AlertsPanel from './components/AlertsPanel.vue'
 
 onMounted(connect)
 
@@ -15,6 +16,13 @@ const query = ref('')
 const filter = ref('all')
 const selectedId = ref(null)
 const showSettings = ref(false)
+const showAlerts = ref(false)
+function openFromAlert(id) {
+  showAlerts.value = false
+  selectedId.value = id
+}
+const unread = computed(() => state.alerts.filter((a) => a.id > state.alertsSeen))
+const unreadSevere = computed(() => unread.value.some((a) => a.kind !== 'new_device' && a.kind !== 'device_online'))
 
 const devices = computed(() => Object.values(state.devices))
 const counts = computed(() => ({
@@ -92,6 +100,10 @@ async function markAllKnown() {
         <button class="btn icon" :title="t('language')" @click="setLocale(locale === 'zh' ? 'en' : 'zh')">
           {{ locale === 'zh' ? 'EN' : '中' }}
         </button>
+        <button class="btn icon bell" :title="t('alerts')" @click="showAlerts = true">
+          <Icon name="bell" />
+          <span v-if="unread.length" class="unread" :class="{ severe: unreadSevere }">{{ unread.length > 99 ? '99+' : unread.length }}</span>
+        </button>
         <button class="btn icon" :title="t('settings')" @click="showSettings = true">
           <Icon name="settings" />
         </button>
@@ -168,6 +180,7 @@ async function markAllKnown() {
 
   <DeviceDrawer v-if="selected" :device="selected" @close="selectedId = null" @select="selectedId = $event" />
   <SettingsDialog v-if="showSettings" @close="showSettings = false" />
+  <AlertsPanel v-if="showAlerts" @close="showAlerts = false" @select="openFromAlert" />
 </template>
 
 <style scoped>
@@ -229,6 +242,28 @@ async function markAllKnown() {
 }
 .actions .btn:hover {
   background: rgb(255 255 255 / 0.16);
+}
+.bell {
+  position: relative;
+}
+.unread {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--amber);
+  color: #1f1300;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+.unread.severe {
+  background: #ef4444;
+  color: #fff;
 }
 .conn {
   display: inline-flex;

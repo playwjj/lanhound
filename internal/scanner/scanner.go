@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"math/rand/v2"
 	"net"
 	"sort"
 	"sync"
@@ -50,6 +51,9 @@ type Config struct {
 	Window   time.Duration // listen time after the last request of a sweep (default 6s)
 	Rate     int           // ARP requests per second per interface (default 300)
 	Only     []string      // restrict to these interface names (default: all)
+	// DHCPProbeEvery is how often a DHCPDISCOVER is broadcast to find
+	// the DHCP servers on each segment (default 30m; negative disables).
+	DHCPProbeEvery time.Duration
 
 	// OnSighting receives every device sighting. It is called from
 	// several goroutines and must be safe for concurrent use.
@@ -92,6 +96,9 @@ func New(cfg Config) *Engine {
 	}
 	if cfg.Rate <= 0 {
 		cfg.Rate = 300
+	}
+	if cfg.DHCPProbeEvery == 0 {
+		cfg.DHCPProbeEvery = 30 * time.Minute
 	}
 	if cfg.OnSighting == nil {
 		cfg.OnSighting = func(passive.Sighting) {}
@@ -319,12 +326,20 @@ func (w *worker) run(parent context.Context) {
 
 	timer := time.NewTimer(0) // first sweep right away
 	defer timer.Stop()
+	var lastDHCPProbe time.Time
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-w.trigger:
 		case <-timer.C:
+		}
+		if w.cfg.DHCPProbeEvery > 0 && time.Since(lastDHCPProbe) >= w.cfg.DHCPProbeEvery {
+			lastDHCPProbe = time.Now()
+			// Offers arrive during the sweep's listen window.
+			if err := l.Write(passive.BuildDHCPDiscover(w.t.Iface.HardwareAddr, rand.Uint32())); err != nil {
+				log.Printf("scanner: DHCP probe on %s: %v", w.t.Iface.Name, err)
+			}
 		}
 		w.sweep(ctx, l)
 		w.markFirstDone()

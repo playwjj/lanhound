@@ -129,3 +129,56 @@ func TestSettings(t *testing.T) {
 		t.Fatal(v)
 	}
 }
+
+func TestAlertsAndCritical(t *testing.T) {
+	s := open(t)
+	t0 := time.Unix(1_800_000_000, 0)
+	d := &Device{MAC: "aa:bb:cc:00:00:09", Critical: true, FirstSeen: t0, LastSeen: t0}
+	if err := s.InsertDevice(d); err != nil {
+		t.Fatal(err)
+	}
+	devs, _, _ := s.Devices()
+	if !devs[0].Critical {
+		t.Fatal("critical flag not stored")
+	}
+	a := &Alert{At: t0, Kind: "device_offline", DeviceID: d.ID, Data: []byte(`{"event":"device_offline"}`)}
+	if err := s.AddAlert(a); err != nil || a.ID == 0 {
+		t.Fatal(err)
+	}
+	_ = s.AddAlert(&Alert{At: t0.Add(2 * time.Second), Kind: "rogue_dhcp", Data: []byte(`{}`)})
+	list, err := s.Alerts(10)
+	if err != nil || len(list) != 2 || list[0].Kind != "rogue_dhcp" || list[1].DeviceID != d.ID {
+		t.Fatalf("alerts %+v %v", list, err)
+	}
+	if n, _ := s.Prune(t0.Add(time.Second)); n != 1 {
+		t.Fatalf("pruned %d", n)
+	}
+}
+
+func TestMigrateLegacyDatabase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Recreate a v0.1.0 database: no critical column, no alerts table.
+	for _, q := range []string{`DROP TABLE alerts`, `ALTER TABLE devices DROP COLUMN critical`, `PRAGMA user_version = 0`} {
+		if _, err := s.db.Exec(q); err != nil {
+			t.Fatal(q, err)
+		}
+	}
+	s.Close()
+	s, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, err := s.Alerts(1); err != nil {
+		t.Fatal("alerts table missing after migration:", err)
+	}
+	var v int
+	_ = s.db.QueryRow(`PRAGMA user_version`).Scan(&v)
+	if v != len(migrations) {
+		t.Fatalf("user_version %d", v)
+	}
+}

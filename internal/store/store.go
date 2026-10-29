@@ -5,6 +5,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -27,6 +28,7 @@ type Device struct {
 	IP             string    `json:"ip"`
 	Iface          string    `json:"interface"`
 	Online         bool      `json:"online"`
+	Critical       bool      `json:"critical"` // alert when it goes offline
 	FirstSeen      time.Time `json:"firstSeen"`
 	LastSeen       time.Time `json:"lastSeen"`
 }
@@ -122,7 +124,50 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("init schema: %w", err)
 	}
+	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
 	return &Store{db: db}, nil
+}
+
+// migrations upgrade older databases; index i brings user_version i
+// to i+1. Never edit a released entry, only append.
+var migrations = []string{
+	`ALTER TABLE devices ADD COLUMN critical INTEGER NOT NULL DEFAULT 0;
+	CREATE TABLE IF NOT EXISTS alerts (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		at INTEGER NOT NULL,
+		kind TEXT NOT NULL,
+		device_id INTEGER,
+		data TEXT NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS alerts_at ON alerts(at);`,
+}
+
+func migrate(db *sql.DB) error {
+	var v int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
+		return err
+	}
+	for ; v < len(migrations); v++ {
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(migrations[v]); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("to version %d: %w", v+1, err)
+		}
+		if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, v+1)); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Close closes the database.
@@ -151,7 +196,7 @@ func b2i(b bool) int {
 
 // Devices loads every device and every MAC address.
 func (s *Store) Devices() ([]*Device, []MAC, error) {
-	rows, err := s.db.Query(`SELECT id, name, note, known, hostname, hostname_source, model, vendor, mac, ip, iface, online, first_seen, last_seen FROM devices`)
+	rows, err := s.db.Query(`SELECT id, name, note, known, hostname, hostname_source, model, vendor, mac, ip, iface, online, critical, first_seen, last_seen FROM devices`)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -159,12 +204,12 @@ func (s *Store) Devices() ([]*Device, []MAC, error) {
 	var devs []*Device
 	for rows.Next() {
 		d := &Device{}
-		var known, online int
+		var known, online, critical int
 		var first, last int64
-		if err := rows.Scan(&d.ID, &d.Name, &d.Note, &known, &d.Hostname, &d.HostnameSource, &d.Model, &d.Vendor, &d.MAC, &d.IP, &d.Iface, &online, &first, &last); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &d.Note, &known, &d.Hostname, &d.HostnameSource, &d.Model, &d.Vendor, &d.MAC, &d.IP, &d.Iface, &online, &critical, &first, &last); err != nil {
 			return nil, nil, err
 		}
-		d.Known, d.Online = known != 0, online != 0
+		d.Known, d.Online, d.Critical = known != 0, online != 0, critical != 0
 		d.FirstSeen, d.LastSeen = fromUnix(first), fromUnix(last)
 		devs = append(devs, d)
 	}
@@ -197,9 +242,9 @@ func (s *Store) InsertDevice(d *Device) error {
 		return err
 	}
 	defer tx.Rollback()
-	res, err := tx.Exec(`INSERT INTO devices (name, note, known, hostname, hostname_source, model, vendor, mac, ip, iface, online, first_seen, last_seen)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		d.Name, d.Note, b2i(d.Known), d.Hostname, d.HostnameSource, d.Model, d.Vendor, d.MAC, d.IP, d.Iface, b2i(d.Online), unix(d.FirstSeen), unix(d.LastSeen))
+	res, err := tx.Exec(`INSERT INTO devices (name, note, known, hostname, hostname_source, model, vendor, mac, ip, iface, online, critical, first_seen, last_seen)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		d.Name, d.Note, b2i(d.Known), d.Hostname, d.HostnameSource, d.Model, d.Vendor, d.MAC, d.IP, d.Iface, b2i(d.Online), b2i(d.Critical), unix(d.FirstSeen), unix(d.LastSeen))
 	if err != nil {
 		return err
 	}
@@ -214,8 +259,8 @@ func (s *Store) InsertDevice(d *Device) error {
 
 // UpdateDevice writes every mutable field of d.
 func (s *Store) UpdateDevice(d *Device) error {
-	_, err := s.db.Exec(`UPDATE devices SET name=?, note=?, known=?, hostname=?, hostname_source=?, model=?, vendor=?, mac=?, ip=?, iface=?, online=?, first_seen=?, last_seen=? WHERE id=?`,
-		d.Name, d.Note, b2i(d.Known), d.Hostname, d.HostnameSource, d.Model, d.Vendor, d.MAC, d.IP, d.Iface, b2i(d.Online), unix(d.FirstSeen), unix(d.LastSeen), d.ID)
+	_, err := s.db.Exec(`UPDATE devices SET name=?, note=?, known=?, hostname=?, hostname_source=?, model=?, vendor=?, mac=?, ip=?, iface=?, online=?, critical=?, first_seen=?, last_seen=? WHERE id=?`,
+		d.Name, d.Note, b2i(d.Known), d.Hostname, d.HostnameSource, d.Model, d.Vendor, d.MAC, d.IP, d.Iface, b2i(d.Online), b2i(d.Critical), unix(d.FirstSeen), unix(d.LastSeen), d.ID)
 	return err
 }
 
@@ -258,6 +303,7 @@ func (s *Store) Merge(src int64, dst *Device) error {
 		`UPDATE macs SET device_id=? WHERE device_id=?`,
 		`UPDATE sessions SET device_id=? WHERE device_id=?`,
 		`UPDATE events SET device_id=? WHERE device_id=?`,
+		`UPDATE alerts SET device_id=? WHERE device_id=?`,
 	} {
 		if _, err := tx.Exec(q, dst.ID, src); err != nil {
 			return err
@@ -266,8 +312,8 @@ func (s *Store) Merge(src int64, dst *Device) error {
 	if _, err := tx.Exec(`DELETE FROM devices WHERE id=?`, src); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`UPDATE devices SET name=?, note=?, known=?, hostname=?, hostname_source=?, model=?, vendor=?, mac=?, ip=?, iface=?, online=?, first_seen=?, last_seen=? WHERE id=?`,
-		dst.Name, dst.Note, b2i(dst.Known), dst.Hostname, dst.HostnameSource, dst.Model, dst.Vendor, dst.MAC, dst.IP, dst.Iface, b2i(dst.Online), unix(dst.FirstSeen), unix(dst.LastSeen), dst.ID); err != nil {
+	if _, err := tx.Exec(`UPDATE devices SET name=?, note=?, known=?, hostname=?, hostname_source=?, model=?, vendor=?, mac=?, ip=?, iface=?, online=?, critical=?, first_seen=?, last_seen=? WHERE id=?`,
+		dst.Name, dst.Note, b2i(dst.Known), dst.Hostname, dst.HostnameSource, dst.Model, dst.Vendor, dst.MAC, dst.IP, dst.Iface, b2i(dst.Online), b2i(dst.Critical), unix(dst.FirstSeen), unix(dst.LastSeen), dst.ID); err != nil {
 		return err
 	}
 	// Two open sessions would overlap after a merge; close all but the latest.
@@ -347,6 +393,7 @@ func (s *Store) Prune(before time.Time) (int64, error) {
 	for _, q := range []string{
 		`DELETE FROM events WHERE at < ?`,
 		`DELETE FROM sessions WHERE end IS NOT NULL AND end < ?`,
+		`DELETE FROM alerts WHERE at < ?`,
 	} {
 		res, err := s.db.Exec(q, unix(before))
 		if err != nil {
@@ -372,4 +419,59 @@ func (s *Store) Setting(key string) (string, error) {
 func (s *Store) SetSetting(key, value string) error {
 	_, err := s.db.Exec(`INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, value)
 	return err
+}
+
+// Alert is one entry of the alert log. Data is the alert message as
+// JSON (a notify.Message); the store does not interpret it.
+type Alert struct {
+	ID       int64           `json:"id"`
+	At       time.Time       `json:"at"`
+	Kind     string          `json:"kind"`
+	DeviceID int64           `json:"deviceId,omitempty"`
+	Data     json.RawMessage `json:"data"`
+}
+
+// AddAlert appends to the alert log and sets a.ID.
+func (s *Store) AddAlert(a *Alert) error {
+	var dev any
+	if a.DeviceID != 0 {
+		dev = a.DeviceID
+	}
+	res, err := s.db.Exec(`INSERT INTO alerts (at, kind, device_id, data) VALUES (?,?,?,?)`, unix(a.At), a.Kind, dev, string(a.Data))
+	if err != nil {
+		return err
+	}
+	a.ID, err = res.LastInsertId()
+	return err
+}
+
+// Alerts returns the newest alerts, newest first.
+func (s *Store) Alerts(limit int) ([]Alert, error) {
+	rows, err := s.db.Query(`SELECT id, at, kind, COALESCE(device_id, 0), data FROM alerts ORDER BY id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Alert{}
+	for rows.Next() {
+		var a Alert
+		var at int64
+		var data string
+		if err := rows.Scan(&a.ID, &at, &a.Kind, &a.DeviceID, &data); err != nil {
+			return nil, err
+		}
+		a.At, a.Data = fromUnix(at), json.RawMessage(data)
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// Alert returns one alert.
+func (s *Store) Alert(id int64) (Alert, error) {
+	var a Alert
+	var at int64
+	var data string
+	err := s.db.QueryRow(`SELECT id, at, kind, COALESCE(device_id, 0), data FROM alerts WHERE id=?`, id).Scan(&a.ID, &at, &a.Kind, &a.DeviceID, &data)
+	a.At, a.Data = fromUnix(at), json.RawMessage(data)
+	return a, err
 }

@@ -3,6 +3,7 @@
 package scanner
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
@@ -86,7 +87,11 @@ func (l *rawLink) Read(buf []byte) (int, bool, error) {
 }
 
 func (l *rawLink) Write(frame []byte) error {
-	return unix.Sendto(l.fd, frame, 0, &unix.SockaddrLinklayer{Protocol: htons(0x0806), Ifindex: l.ifindex})
+	if len(frame) < 14 {
+		return errors.New("frame too short")
+	}
+	proto := binary.BigEndian.Uint16(frame[12:14])
+	return unix.Sendto(l.fd, frame, 0, &unix.SockaddrLinklayer{Protocol: htons(proto), Ifindex: l.ifindex})
 }
 
 func (l *rawLink) Close() error { return unix.Close(l.fd) }

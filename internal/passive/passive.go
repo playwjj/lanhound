@@ -47,6 +47,14 @@ type Sighting struct {
 	HostnameSource string // which protocol named it; see HostnamePriority
 	Model          string // product hint: mDNS TXT md=/model=, SSDP SERVER header
 	At             time.Time
+
+	// Gratuitous marks an unsolicited ARP announcement (sender IP equals
+	// target IP) — normal after a reboot, suspicious in a flood.
+	Gratuitous bool
+	// DHCPServer marks a DHCP server answering (OFFER/ACK/NAK); MAC/IP
+	// are the server's and DHCPServerID is its option-54 identifier.
+	DHCPServer   bool
+	DHCPServerID net.IP
 }
 
 // HostnamePriority ranks hostname sources: a name the device chose for
@@ -79,7 +87,7 @@ func Decode(frame []byte) []Sighting {
 		if !ok {
 			return nil
 		}
-		s := Sighting{MAC: pkt.SenderMAC, Source: SrcARP}
+		s := Sighting{MAC: pkt.SenderMAC, Source: SrcARP, Gratuitous: pkt.SenderIP.Equal(pkt.TargetIP)}
 		if pkt.Op == arp.OpReply {
 			s.Source = SrcARPReply
 		}

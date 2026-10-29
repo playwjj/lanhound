@@ -31,12 +31,19 @@ type Scanner interface {
 	Sweep()
 }
 
+// Security is the part of the security guard the web layer needs.
+type Security interface {
+	Gateways() map[string][]string
+	TrustDHCP(iface, key string) error
+}
+
 // Server is the HTTP front of LanHound.
 type Server struct {
 	Registry *core.Registry
 	Settings *core.Settings
 	Hub      *core.Hub
 	Scanner  Scanner
+	Security Security
 	Version  string
 	Interval time.Duration
 	// Password enables HTTP basic auth (any username) when non-empty.
@@ -47,14 +54,15 @@ type Server struct {
 
 // Status is the dashboard header payload.
 type Status struct {
-	Version      string           `json:"version"`
-	StartedAt    time.Time        `json:"startedAt"`
-	Baseline     bool             `json:"baseline"`
-	ScanInterval int              `json:"scanInterval"` // seconds
-	Interfaces   []scanner.Status `json:"interfaces"`
-	Skipped      []string         `json:"skipped"`
-	Notify       bool             `json:"notify"` // a channel is configured
-	Alerts       core.AlertStatus `json:"alerts"`
+	Version      string              `json:"version"`
+	StartedAt    time.Time           `json:"startedAt"`
+	Baseline     bool                `json:"baseline"`
+	ScanInterval int                 `json:"scanInterval"` // seconds
+	Interfaces   []scanner.Status    `json:"interfaces"`
+	Skipped      []string            `json:"skipped"`
+	Notify       bool                `json:"notify"` // a channel is configured
+	Alerts       core.AlertStatus    `json:"alerts"`
+	Gateways     map[string][]string `json:"gateways"` // interface → default gateway(s)
 }
 
 // Status builds the current status payload.
@@ -63,7 +71,12 @@ func (s *Server) Status() Status {
 	if skipped == nil {
 		skipped = []string{}
 	}
+	gateways := map[string][]string{}
+	if s.Security != nil {
+		gateways = s.Security.Gateways()
+	}
 	return Status{
+		Gateways:     gateways,
 		Version:      s.Version,
 		StartedAt:    s.started,
 		Baseline:     s.Registry.Baseline(),
@@ -98,6 +111,8 @@ func (s *Server) Handler() http.Handler {
 		s.Scanner.Sweep()
 		writeJSON(w, map[string]bool{"ok": true})
 	})
+	mux.HandleFunc("GET /api/alerts", s.alerts)
+	mux.HandleFunc("POST /api/alerts/{id}/trust", s.trustAlert)
 	mux.HandleFunc("GET /api/settings", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, s.Settings.Public()) })
 	mux.HandleFunc("PUT /api/settings", s.putSettings)
 	mux.HandleFunc("POST /api/settings/test", s.testSettings)
@@ -253,6 +268,41 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, h)
+}
+
+func (s *Server) alerts(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	list, err := s.Registry.Alerts(limit)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, list)
+}
+
+// trustAlert marks the DHCP server of a rogue_dhcp alert as expected.
+func (s *Server) trustAlert(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	_, m, err := s.Registry.Alert(id)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if m.Event != notify.EventRogueDHCP || m.Key == "" || s.Security == nil {
+		http.Error(w, "only DHCP-server alerts can be trusted", http.StatusBadRequest)
+		return
+	}
+	if err := s.Security.TrustDHCP(m.Interface, m.Key); err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
 }
 
 func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {

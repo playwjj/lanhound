@@ -33,8 +33,10 @@ import (
 	"github.com/playwjj/lanhound/internal/netutil"
 	"github.com/playwjj/lanhound/internal/notify"
 	"github.com/playwjj/lanhound/internal/oui"
+	"github.com/playwjj/lanhound/internal/passive"
 	"github.com/playwjj/lanhound/internal/probe"
 	"github.com/playwjj/lanhound/internal/scanner"
+	"github.com/playwjj/lanhound/internal/security"
 	"github.com/playwjj/lanhound/internal/store"
 	"github.com/playwjj/lanhound/internal/web"
 )
@@ -98,9 +100,18 @@ func serve(args []string) {
 	ifaces := fs.String("iface", env("LANHOUND_INTERFACES", ""), "comma-separated interfaces to watch; default all (env LANHOUND_INTERFACES)")
 	rate := fs.Int("rate", envInt("LANHOUND_SCAN_RATE", 300), "max ARP requests per second per interface (env LANHOUND_SCAN_RATE)")
 	retention := fs.Int("retention", envInt("LANHOUND_RETENTION_DAYS", 90), "days of history to keep (env LANHOUND_RETENTION_DAYS)")
+	dhcpProbe := fs.String("dhcp-probe", env("LANHOUND_DHCP_PROBE", "30m"), "how often to broadcast a DHCPDISCOVER to find rogue DHCP servers, or \"off\" (env LANHOUND_DHCP_PROBE)")
 	demoMode := fs.Bool("demo", false, "simulate a home network instead of scanning (for trying the UI)")
 	_ = fs.Parse(args)
 
+	probeEvery := -time.Duration(1)
+	if *dhcpProbe != "off" && *dhcpProbe != "0" {
+		d, err := time.ParseDuration(*dhcpProbe)
+		if err != nil || d < time.Minute {
+			log.Fatal("LANHOUND_DHCP_PROBE must be a duration of at least 1m, or \"off\"")
+		}
+		probeEvery = d
+	}
 	if *interval < 30*time.Second {
 		log.Fatal("scan interval must be at least 30s")
 	}
@@ -146,7 +157,12 @@ func serve(args []string) {
 		log.Fatalf("load devices: %v", err)
 	}
 
-	srv := &web.Server{Registry: reg, Settings: settings, Hub: hub, Version: version, Interval: *interval, Password: os.Getenv("LANHOUND_PASSWORD")}
+	guard := security.New(st, reg.RaiseFinding)
+	observe := func(s passive.Sighting) {
+		reg.Observe(s)
+		guard.Observe(s)
+	}
+	srv := &web.Server{Registry: reg, Settings: settings, Hub: hub, Security: guard, Version: version, Interval: *interval, Password: os.Getenv("LANHOUND_PASSWORD")}
 	publishStatus := func() { hub.Publish("status", srv.Status()) }
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -154,21 +170,24 @@ func serve(args []string) {
 
 	var firstRound <-chan struct{}
 	if *demoMode {
-		d := demo.New(reg.Observe, publishStatus)
+		d := demo.New(observe, publishStatus)
+		guard.SetGateways(demo.Gateways())
 		srv.Scanner, srv.Interval, firstRound = d, 10*time.Second, d.FirstRound()
 		go d.Run(ctx)
 		log.Print("demo mode: simulating a home network, nothing is scanned")
 	} else {
 		eng := scanner.New(scanner.Config{
-			Interval:   *interval,
-			Window:     window,
-			Rate:       *rate,
-			Only:       splitList(*ifaces),
-			OnSighting: reg.Observe,
-			OnStatus:   publishStatus,
+			Interval:       *interval,
+			Window:         window,
+			Rate:           *rate,
+			Only:           splitList(*ifaces),
+			DHCPProbeEvery: probeEvery,
+			OnSighting:     observe,
+			OnStatus:       publishStatus,
 		})
 		srv.Scanner, firstRound = eng, eng.FirstRound()
 		go eng.Run(ctx)
+		go guard.Run(ctx)
 		for _, s := range eng.Skipped() {
 			log.Print("note: ", s)
 		}

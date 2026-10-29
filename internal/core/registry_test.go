@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"net"
 	"path/filepath"
 	"sync"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/playwjj/lanhound/internal/notify"
 	"github.com/playwjj/lanhound/internal/passive"
+	"github.com/playwjj/lanhound/internal/security"
 	"github.com/playwjj/lanhound/internal/store"
 )
 
@@ -269,5 +271,97 @@ func TestSettingsMaskAndEnvLock(t *testing.T) {
 	s2, _ := NewSettings(st, notify.Settings{})
 	if s2.Get().TelegramChatID != "9" {
 		t.Fatal("settings not persisted")
+	}
+}
+
+func (h *harness) waitSent(t *testing.T, n int) []notify.Message {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for {
+		h.mu.Lock()
+		got := append([]notify.Message(nil), h.sent...)
+		h.mu.Unlock()
+		if len(got) >= n {
+			return got
+		}
+		select {
+		case <-h.sentC:
+		case <-deadline:
+			t.Fatalf("want %d alerts, got %d: %+v", n, len(got), got)
+		}
+	}
+}
+
+func TestCriticalDeviceAlerts(t *testing.T) {
+	h := newHarness(t, "")
+	h.r.Observe(sight("00:11:32:aa:bb:02", "192.168.2.10", hostname("DiskStation", passive.SrcMDNS)))
+	id := h.r.Devices()[0].ID
+	crit := true
+	if v, err := h.r.Update(id, Patch{Critical: &crit}); err != nil || !v.Critical {
+		t.Fatal("critical flag not set", err)
+	}
+	h.clk.Add(11 * time.Minute)
+	h.r.Flush()
+	got := h.waitSent(t, 1)
+	if got[0].Event != notify.EventDeviceOffline || got[0].Devices[0].Hostname != "DiskStation" {
+		t.Fatalf("offline alert %+v", got[0])
+	}
+	h.clk.Add(2 * time.Hour)
+	h.r.Observe(sight("00:11:32:aa:bb:02", "192.168.2.10"))
+	got = h.waitSent(t, 2)
+	if got[1].Event != notify.EventDeviceOnline || got[1].Seconds < 2*3600 {
+		t.Fatalf("online alert %+v", got[1])
+	}
+	log, _ := h.r.Alerts(10)
+	if len(log) != 2 || log[0].Kind != notify.EventDeviceOnline || log[0].DeviceID != id {
+		t.Fatalf("alert log %+v", log)
+	}
+}
+
+func TestRaiseFindingNamesDevices(t *testing.T) {
+	h := newHarness(t, "")
+	h.r.Observe(sight("34:f7:16:57:4b:12", "192.168.2.1"))
+	name := "Router"
+	_, _ = h.r.Update(h.r.Devices()[0].ID, Patch{Name: &name})
+	evil, _ := net.ParseMAC("02:00:00:00:00:66")
+	gw, _ := net.ParseMAC("34:f7:16:57:4b:12")
+	h.r.RaiseFinding(security.Finding{Event: notify.EventARPConflict, Interface: "eth0", IP: net.IPv4(192, 168, 2, 1), Gateway: true, MACs: []net.HardwareAddr{gw, evil}})
+	got := h.waitSent(t, 1)[0]
+	if got.IP != "192.168.2.1" || got.Devices[0].Name != "Router" || got.Devices[1].ID != 0 || !got.Devices[1].Randomized || got.Devices[1].IP != "192.168.2.1" {
+		t.Fatalf("finding message %+v", got)
+	}
+	a, m, err := h.r.Alert(1)
+	if err != nil || a.Kind != notify.EventARPConflict || !m.Gateway || a.DeviceID == 0 {
+		t.Fatalf("logged alert %+v %+v %v", a, m, err)
+	}
+}
+
+func TestDeliveryRetries(t *testing.T) {
+	saved := retryDelays
+	retryDelays = []time.Duration{0, 10 * time.Millisecond, 10 * time.Millisecond}
+	defer func() { retryDelays = saved }()
+
+	h := newHarness(t, "")
+	calls := 0
+	h.r.o.Send = func(context.Context, notify.Settings, notify.Message) error {
+		h.mu.Lock()
+		calls++
+		n := calls
+		h.mu.Unlock()
+		if n < 3 {
+			return errors.New("dial tcp: lookup api.telegram.org: i/o timeout")
+		}
+		h.sentC <- struct{}{}
+		return nil
+	}
+	h.r.raise(notify.Message{Event: notify.EventRogueDHCP}, 0)
+	select {
+	case <-h.sentC:
+	case <-time.After(2 * time.Second):
+		t.Fatal("never delivered")
+	}
+	time.Sleep(20 * time.Millisecond)
+	if st := h.r.AlertStatus(); st.LastError != "" || st.LastSent.IsZero() {
+		t.Fatalf("status after successful retry %+v", st)
 	}
 }

@@ -2,6 +2,7 @@ package netutil
 
 import (
 	"net"
+	"strings"
 	"testing"
 )
 
@@ -40,5 +41,18 @@ func TestIsVirtual(t *testing.T) {
 		if got := IsVirtual(name); got != want {
 			t.Errorf("IsVirtual(%q) = %v, want %v", name, got, want)
 		}
+	}
+}
+
+func TestParseRoutes(t *testing.T) {
+	table := `Iface	Destination	Gateway 	Flags	RefCnt	Use	Metric	Mask		MTU	Window	IRTT
+enxa0cec8d68b90	00000000	0102A8C0	0003	0	0	100	00000000	0	0	0
+enxa0cec8d68b90	0002A8C0	00000000	0001	0	0	100	00FFFFFF	0	0	0
+docker0	000011AC	00000000	0001	0	0	0	0000FFFF	0	0	0
+wlan0	00000000	FE02A8C0	0003	0	0	600	00000000	0	0	0
+`
+	got := parseRoutes(strings.NewReader(table))
+	if len(got) != 2 || !got["enxa0cec8d68b90"][0].Equal(net.IPv4(192, 168, 2, 1)) || !got["wlan0"][0].Equal(net.IPv4(192, 168, 2, 254)) {
+		t.Fatalf("got %v", got)
 	}
 }

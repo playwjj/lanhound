@@ -17,6 +17,7 @@ export const api = {
   history: (id, days = 7) => call('GET', `/api/devices/${id}/history?days=${days}`),
   knownAll: () => call('POST', '/api/known-all'),
   scan: () => call('POST', '/api/scan'),
+  trustAlert: (id) => call('POST', `/api/alerts/${id}/trust`),
   settings: () => call('GET', '/api/settings'),
   saveSettings: (s) => call('PUT', '/api/settings', s),
   testSettings: (s) => call('POST', '/api/settings/test', s),

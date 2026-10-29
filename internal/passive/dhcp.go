@@ -1,6 +1,7 @@
 package passive
 
 import (
+	"encoding/binary"
 	"net"
 )
 
@@ -90,6 +91,10 @@ func decodeDHCPReply(payload []byte, base Sighting) []Sighting {
 		return nil
 	}
 	base.Source = SrcDHCP
+	base.DHCPServer = true
+	if id := m.options[optServerID]; len(id) == 4 {
+		base.DHCPServerID = net.IP(append([]byte(nil), id...))
+	}
 	out := []Sighting{base}
 	if t := m.options[optMsgType]; len(t) == 1 && t[0] == dhcpAck && !m.yiaddr.IsUnspecified() {
 		out = append(out, Sighting{MAC: m.chaddr, IP: m.yiaddr, Source: SrcDHCP})
@@ -116,4 +121,53 @@ func cleanName(s string) string {
 		out = out[:len(out)-1]
 	}
 	return string(out)
+}
+
+// BuildDHCPDiscover returns a broadcast DHCPDISCOVER Ethernet frame
+// from mac. LanHound sends one now and then to learn which DHCP servers
+// answer on the segment; it never follows up with a REQUEST, so no
+// lease is taken. The broadcast flag makes servers broadcast their
+// OFFER, which the passive listener then sees.
+func BuildDHCPDiscover(mac net.HardwareAddr, xid uint32) []byte {
+	bootp := make([]byte, 300) // BOOTP minimum size
+	bootp[0], bootp[1], bootp[2] = 1, 1, 6
+	binary.BigEndian.PutUint32(bootp[4:8], xid)
+	bootp[10] = 0x80 // broadcast flag
+	copy(bootp[28:34], mac)
+	binary.BigEndian.PutUint32(bootp[236:240], dhcpMagic)
+	opts := []byte{
+		optMsgType, 1, 1, // DHCPDISCOVER
+		55, 4, 1, 3, 6, 54, // parameter request list: mask, router, DNS, server ID
+		optEnd,
+	}
+	copy(bootp[240:], opts)
+
+	frame := make([]byte, 14+20+8+len(bootp))
+	for i := 0; i < 6; i++ {
+		frame[i] = 0xff
+	}
+	copy(frame[6:12], mac)
+	frame[12], frame[13] = 0x08, 0x00
+	ip := frame[14:34]
+	ip[0], ip[8], ip[9] = 0x45, 64, 17
+	binary.BigEndian.PutUint16(ip[2:4], uint16(20+8+len(bootp)))
+	copy(ip[16:20], []byte{255, 255, 255, 255})
+	binary.BigEndian.PutUint16(ip[10:12], ipChecksum(ip))
+	udp := frame[34:42]
+	binary.BigEndian.PutUint16(udp[0:2], PortDHCPClient)
+	binary.BigEndian.PutUint16(udp[2:4], PortDHCPServer)
+	binary.BigEndian.PutUint16(udp[4:6], uint16(8+len(bootp))) // checksum 0: optional for IPv4
+	copy(frame[42:], bootp)
+	return frame
+}
+
+func ipChecksum(h []byte) uint16 {
+	var sum uint32
+	for i := 0; i+1 < len(h); i += 2 {
+		sum += uint32(binary.BigEndian.Uint16(h[i : i+2]))
+	}
+	for sum > 0xffff {
+		sum = sum>>16 + sum&0xffff
+	}
+	return ^uint16(sum)
 }

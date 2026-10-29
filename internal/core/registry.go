@@ -55,9 +55,10 @@ type View struct {
 
 // Patch is a user edit; nil fields are left alone.
 type Patch struct {
-	Name  *string `json:"name"`
-	Note  *string `json:"note"`
-	Known *bool   `json:"known"`
+	Name     *string `json:"name"`
+	Note     *string `json:"note"`
+	Known    *bool   `json:"known"`
+	Critical *bool   `json:"critical"`
 }
 
 // AlertStatus reports notification health to the UI.
@@ -86,6 +87,7 @@ type Registry struct {
 	pending    map[int64]time.Time // new-device alerts waiting to go out
 	baseline   bool
 	alertState AlertStatus
+	ctx        context.Context // set by Run; used by background alert delivery
 
 	probes chan int64
 }
@@ -183,6 +185,7 @@ func (r *Registry) Observe(s passive.Sighting) {
 	}
 	d := r.devices[id]
 	changed := false
+	prevSeen := d.LastSeen
 	if s.At.After(d.LastSeen) {
 		d.LastSeen = s.At
 		r.dirty[id] = true
@@ -211,6 +214,9 @@ func (r *Registry) Observe(s passive.Sighting) {
 		changed = true
 		r.check(r.o.Store.OpenSession(id, s.At))
 		r.event(id, s.At, store.EventOnline, d.IP)
+		if d.Critical {
+			r.criticalAlert(d, true, s.At.Sub(prevSeen))
+		}
 	}
 	if r.applyHostname(d, s.Hostname, s.HostnameSource, s.At) {
 		changed = true
@@ -308,6 +314,9 @@ func (r *Registry) queueProbe(d *store.Device) {
 // Run drives the periodic work — flushing, offline detection, probes,
 // alerts and pruning — until ctx is cancelled.
 func (r *Registry) Run(ctx context.Context) {
+	r.mu.Lock()
+	r.ctx = ctx
+	r.mu.Unlock()
 	for i := 0; i < 2; i++ {
 		go r.probeWorker(ctx)
 	}
@@ -354,6 +363,9 @@ func (r *Registry) Flush() {
 			r.check(r.o.Store.UpdateDevice(d))
 			r.check(r.o.Store.CloseSession(d.ID, d.LastSeen))
 			r.event(d.ID, d.LastSeen, store.EventOffline, "")
+			if d.Critical {
+				r.criticalAlert(d, false, 0)
+			}
 			r.publish(d)
 			delete(touched, d.ID)
 		}
@@ -423,26 +435,12 @@ func (r *Registry) sendDueAlerts(ctx context.Context) {
 	if len(due) == 0 {
 		return
 	}
-	set := r.o.Settings.Get()
-	if !set.NotifyNew || !set.Configured() {
-		return
-	}
 	sort.Slice(due, func(i, j int) bool { return due[i].FirstSeen.Before(due[j].FirstSeen) })
-	go func() {
-		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-		err := r.o.Send(ctx, set, notify.Message{Event: notify.EventNewDevice, Devices: due})
-		r.mu.Lock()
-		if err != nil {
-			log.Printf("alerts: %v", err)
-			r.alertState.LastError = err.Error()
-		} else {
-			r.alertState.LastSent, r.alertState.LastError = r.o.Now(), ""
-		}
-		st := r.alertState
-		r.mu.Unlock()
-		r.o.Hub.Publish("alerts", st)
-	}()
+	var id int64
+	if len(due) == 1 {
+		id = due[0].ID
+	}
+	r.raise(notify.Message{Event: notify.EventNewDevice, Devices: due}, id)
 }
 
 // AlertStatus returns the outcome of the last alert delivery.
@@ -549,6 +547,9 @@ func (r *Registry) Update(id int64, p Patch) (View, error) {
 			delete(r.pending, id)
 		}
 	}
+	if p.Critical != nil {
+		d.Critical = *p.Critical
+	}
 	if err := r.o.Store.UpdateDevice(d); err != nil {
 		return View{}, err
 	}
@@ -599,6 +600,7 @@ func (r *Registry) Merge(src, dst int64) (View, error) {
 		m.Note = s.Note
 	}
 	m.Known = d.Known || s.Known
+	m.Critical = d.Critical || s.Critical
 	if s.FirstSeen.Before(m.FirstSeen) {
 		m.FirstSeen = s.FirstSeen
 	}

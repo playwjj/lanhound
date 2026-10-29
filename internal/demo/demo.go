@@ -106,6 +106,7 @@ func (s *Scanner) round(start time.Time, first bool) {
 		s.onSighting(sg)
 		counts[h.iface]++
 	}
+	s.securityScript(time.Since(start), first)
 	s.mu.Lock()
 	for name, st := range s.status {
 		st.Sweeping, st.LastSweep, st.LastReplies = false, time.Now(), counts[name]
@@ -138,5 +139,35 @@ func (s *Scanner) Sweep() {
 	select {
 	case s.sweep <- struct{}{}:
 	default:
+	}
+}
+
+// Gateways is the simulated default route.
+func Gateways() map[string][]net.IP {
+	return map[string][]net.IP{"eth0": {net.IPv4(192, 168, 2, 1).To4()}}
+}
+
+// securityScript stages the security alerts: the router answers DHCP
+// from the start (and becomes the trusted server), a travel router with
+// DHCP left on shows up after 90s, and from 120s on a laptop starts
+// claiming the gateway's address.
+func (s *Scanner) securityScript(since time.Duration, first bool) {
+	sight := func(mac, ip string, f func(*passive.Sighting)) {
+		hw, _ := net.ParseMAC(mac)
+		sg := passive.Sighting{Iface: "eth0", MAC: hw, IP: net.ParseIP(ip).To4(), At: time.Now()}
+		f(&sg)
+		s.onSighting(sg)
+	}
+	dhcp := func(sg *passive.Sighting) {
+		sg.Source, sg.DHCPServer, sg.DHCPServerID = passive.SrcDHCP, true, sg.IP
+	}
+	if first {
+		sight("00:0a:eb:12:34:01", "192.168.2.1", dhcp)
+	}
+	if since > 90*time.Second {
+		sight("e4:95:6e:40:11:22", "192.168.8.1", dhcp) // GL.iNet travel router
+	}
+	if since > 120*time.Second {
+		sight("94:e9:79:ab:cd:10", "192.168.2.1", func(sg *passive.Sighting) { sg.Source = passive.SrcARPReply })
 	}
 }
