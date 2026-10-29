@@ -150,6 +150,7 @@ func serve(args []string) {
 		}
 	}
 	settings, err := core.NewSettings(st, notify.Settings{
+		EmailVia: smtpEnv.EmailVia, ResendKey: smtpEnv.ResendKey,
 		SMTPHost: smtpEnv.SMTPHost, SMTPPort: smtpEnv.SMTPPort, SMTPSecurity: smtpEnv.SMTPSecurity,
 		SMTPUser: smtpEnv.SMTPUser, SMTPPassword: smtpEnv.SMTPPassword, SMTPFrom: smtpEnv.SMTPFrom, SMTPTo: smtpEnv.SMTPTo,
 		Language:       os.Getenv("LANHOUND_LANG"),

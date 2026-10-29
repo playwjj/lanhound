@@ -4,7 +4,10 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -145,5 +148,52 @@ func TestParseSMTPURL(t *testing.T) {
 		if _, err := ParseSMTPURL(bad); err == nil {
 			t.Errorf("%q accepted", bad)
 		}
+	}
+}
+
+func TestSendResend(t *testing.T) {
+	var got map[string]any
+	var auth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth = r.Header.Get("Authorization")
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		if got["from"] == "bad@unverified.example" {
+			w.WriteHeader(403)
+			_, _ = w.Write([]byte(`{"statusCode":403,"message":"The unverified.example domain is not verified."}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"id":"49a3999c"}`))
+	}))
+	defer srv.Close()
+	saved := resendEndpoint
+	resendEndpoint = srv.URL
+	defer func() { resendEndpoint = saved }()
+
+	s := Settings{Language: "en", EmailVia: ViaResend, ResendKey: "re_test_only", SMTPFrom: "LanHound <alerts@example.com>", SMTPTo: "a@example.com,b@example.com"}
+	if !s.Email() {
+		t.Fatal("resend should count as configured without an SMTP host")
+	}
+	m := Message{Event: EventRogueDHCP, Interface: "eth0", IP: "192.168.2.123", Devices: []DeviceInfo{{MAC: "60:eb:69:e3:3a:4b"}}}
+	if err := Send(context.Background(), s, m); err != nil {
+		t.Fatal(err)
+	}
+	if auth != "Bearer re_test_only" || got["subject"] != "⚠️ Unexpected DHCP server on eth0" || len(got["to"].([]any)) != 2 ||
+		!strings.Contains(got["text"].(string), "Server: Unknown device") {
+		t.Fatalf("request %v auth %q", got, auth)
+	}
+	s.SMTPFrom = "bad@unverified.example"
+	err := Send(context.Background(), s, m)
+	if err == nil || !strings.Contains(err.Error(), "domain is not verified") || strings.Contains(err.Error(), "re_test_only") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestParseResendURL(t *testing.T) {
+	s, err := ParseSMTPURL("resend://re_abc123@resend.com?from=alerts@example.com&to=me@example.com")
+	if err != nil || s.EmailVia != ViaResend || s.ResendKey != "re_abc123" || !s.Email() {
+		t.Fatalf("%+v %v", s, err)
+	}
+	if _, err := ParseSMTPURL("resend://resend.com?from=a@b.c&to=d@e.f"); err == nil {
+		t.Fatal("missing key accepted")
 	}
 }

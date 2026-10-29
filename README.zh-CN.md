@@ -139,7 +139,7 @@ docker run -d --name lanhound-agent --restart unless-stopped --network host --ca
 | `TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID` | — | Telegram 报警 |
 | `TELEGRAM_API_URL` | `https://api.telegram.org` | Bot API 反代地址 |
 | `LANHOUND_WEBHOOK_URL` | — | Webhook 报警 |
-| `LANHOUND_SMTP_URL` | — | 邮件报警：`smtp://用户:授权码@smtp.qq.com:587?from=a@qq.com&to=b@qq.com,c@163.com`（465 端口用 `smtps://`，本机不加密中继用 `smtp+plain://`） |
+| `LANHOUND_SMTP_URL` | — | 邮件报警：`smtp://用户:授权码@smtp.qq.com:587?from=a@qq.com&to=b@qq.com,c@163.com`（465 端口用 `smtps://`，本机不加密中继用 `smtp+plain://`）；也可以用 `resend://re_KEY@resend.com?from=…&to=…` 走 Resend 的 HTTP API（443 端口，支持 `HTTPS_PROXY`，SMTP 被封时可用） |
 | `TZ` | UTC | 报警时间所用时区，如 `Asia/Shanghai` |
 
 设备连续两轮扫描再加一分钟没有动静即判定为离线（默认约 11 分钟）。

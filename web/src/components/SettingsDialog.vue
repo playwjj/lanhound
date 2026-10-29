@@ -117,7 +117,19 @@ const test = () => act(() => api.testSettings(form.value), t('testOk'))
 
       <fieldset>
         <legend>{{ t('email') }}</legend>
-        <div class="grid3">
+        <label class="field">
+          <span class="label">{{ t('emailVia') }} <em v-if="isLocked('emailVia')">{{ t('lockedEnv') }}</em></span>
+          <select v-model="form.emailVia" :disabled="isLocked('emailVia')">
+            <option value="smtp">SMTP</option>
+            <option value="resend">Resend API (HTTPS)</option>
+          </select>
+        </label>
+        <label v-if="form.emailVia === 'resend'" class="field">
+          <span class="label">Resend API key</span>
+          <input v-model="form.resendKey" type="password" autocomplete="off" placeholder="re_…" :disabled="isLocked('resendKey')" />
+          <span class="help">{{ t('resendHelp') }}</span>
+        </label>
+        <div v-if="form.emailVia !== 'resend'" class="grid3">
           <label class="field">
             <span class="label">{{ t('smtpHost') }} <em v-if="isLocked('smtpHost')">{{ t('lockedEnv') }}</em></span>
             <input v-model="form.smtpHost" type="text" placeholder="smtp.qq.com" :disabled="isLocked('smtpHost')" />
@@ -135,7 +147,7 @@ const test = () => act(() => api.testSettings(form.value), t('testOk'))
             </select>
           </label>
         </div>
-        <div class="grid2">
+        <div v-if="form.emailVia !== 'resend'" class="grid2">
           <label class="field">
             <span class="label">{{ t('username') }}</span>
             <input v-model="form.smtpUser" type="text" autocomplete="off" :disabled="isLocked('smtpUser')" />
@@ -155,7 +167,7 @@ const test = () => act(() => api.testSettings(form.value), t('testOk'))
             <input v-model="form.smtpTo" type="text" placeholder="me@example.com, family@example.com" :disabled="isLocked('smtpTo')" />
           </label>
         </div>
-        <span class="help">{{ t('smtpHelp') }}</span>
+        <span v-if="form.emailVia !== 'resend'" class="help">{{ t('smtpHelp') }}</span>
       </fieldset>
 
       <fieldset>

@@ -62,7 +62,9 @@ type Settings struct {
 	TelegramAPI    string `json:"telegramApi"` // Bot API base URL, for self-hosted proxies
 	WebhookURL     string `json:"webhookUrl"`
 
-	// Email over SMTP.
+	// Email, sent over SMTP or through Resend's HTTP API.
+	EmailVia     string `json:"emailVia"` // "smtp" (default) or "resend"
+	ResendKey    string `json:"resendKey"`
 	SMTPHost     string `json:"smtpHost"`
 	SMTPPort     string `json:"smtpPort"`
 	SMTPSecurity string `json:"smtpSecurity"` // starttls (default), tls, none

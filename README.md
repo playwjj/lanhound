@@ -240,7 +240,7 @@ the UI shows them as locked.
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | — | Telegram alerts |
 | `TELEGRAM_API_URL` | `https://api.telegram.org` | Bot API proxy |
 | `LANHOUND_WEBHOOK_URL` | — | Webhook alerts |
-| `LANHOUND_SMTP_URL` | — | Email alerts: `smtp://user:pass@host:587?from=a@x.com&to=b@x.com,c@x.com` (`smtps://` for port 465, `smtp+plain://` for an unencrypted local relay) |
+| `LANHOUND_SMTP_URL` | — | Email alerts: `smtp://user:pass@host:587?from=a@x.com&to=b@x.com,c@x.com` (`smtps://` for port 465, `smtp+plain://` for an unencrypted local relay), or `resend://re_KEY@resend.com?from=…&to=…` for Resend's HTTP API (port 443, works through `HTTPS_PROXY`) |
 | `TZ` | UTC | Time zone for alert timestamps |
 
 A device counts as offline once it has been silent for two sweeps plus a

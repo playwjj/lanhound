@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
 	"net"
+	"net/http"
 	"net/mail"
 	"net/smtp"
 	"net/url"
@@ -23,9 +26,21 @@ const (
 	SMTPNone     = "none"     // no encryption (local relays only)
 )
 
+// Email transports.
+const (
+	ViaSMTP   = "smtp"
+	ViaResend = "resend"
+)
+
 // Email reports whether the email channel is configured.
 func (s Settings) Email() bool {
-	return s.SMTPHost != "" && s.SMTPFrom != "" && len(recipients(s.SMTPTo)) > 0
+	if s.SMTPFrom == "" || len(recipients(s.SMTPTo)) == 0 {
+		return false
+	}
+	if s.EmailVia == ViaResend {
+		return s.ResendKey != ""
+	}
+	return s.SMTPHost != ""
 }
 
 func recipients(list string) []string {
@@ -41,15 +56,28 @@ func recipients(list string) []string {
 // ParseSMTPURL reads LANHOUND_SMTP_URL:
 //
 //	smtp://user:pass@host:587?from=lanhound@example.com&to=me@example.com,you@example.com
+//	resend://re_APIKEY@resend.com?from=alerts@yourdomain.com&to=me@example.com
 //
 // smtp:// means STARTTLS (587 by default), smtps:// implicit TLS (465)
-// and smtp+plain:// no encryption (25).
+// and smtp+plain:// no encryption (25); resend:// uses Resend's HTTP API.
 func ParseSMTPURL(raw string) (Settings, error) {
 	var s Settings
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" {
 		return s, fmt.Errorf("bad SMTP URL %q", raw)
 	}
+	if u.Scheme == "resend" {
+		if u.User == nil || u.User.Username() == "" {
+			return s, errors.New("resend:// URL needs the API key before the @")
+		}
+		s.EmailVia, s.ResendKey = ViaResend, u.User.Username()
+		s.SMTPFrom, s.SMTPTo = u.Query().Get("from"), u.Query().Get("to")
+		if s.SMTPFrom == "" || len(recipients(s.SMTPTo)) == 0 {
+			return s, errors.New("resend:// URL needs ?from=…&to=…")
+		}
+		return s, nil
+	}
+	s.EmailVia = ViaSMTP
 	switch u.Scheme {
 	case "smtp":
 		s.SMTPSecurity, s.SMTPPort = SMTPStartTLS, "587"
@@ -99,6 +127,9 @@ func emailMessage(s Settings, m Message, now time.Time) []byte {
 }
 
 func sendEmail(ctx context.Context, s Settings, m Message) error {
+	if s.EmailVia == ViaResend {
+		return sendResend(ctx, s, m)
+	}
 	port := s.SMTPPort
 	if port == "" {
 		port = map[string]string{SMTPTLS: "465", SMTPNone: "25"}[s.SMTPSecurity]
@@ -173,4 +204,44 @@ func sendEmail(ctx context.Context, s Settings, m Message) error {
 		return err
 	}
 	return c.Quit()
+}
+
+// resendEndpoint is Resend's send-email API (swapped in tests).
+var resendEndpoint = "https://api.resend.com/emails"
+
+// sendResend sends through Resend's HTTP API: plain HTTPS on port 443,
+// so it works where outbound SMTP is blocked and honours HTTPS_PROXY.
+// The sender must be on a domain verified with Resend.
+func sendResend(ctx context.Context, s Settings, m Message) error {
+	plain := func(x string) string { return x }
+	body, _ := json.Marshal(map[string]any{
+		"from":    s.SMTPFrom,
+		"to":      recipients(s.SMTPTo),
+		"subject": Describe(m, s.Language, plain).Title,
+		"text":    Render(m, s.Language, plain, "", "") + "\n\n-- \nLanHound",
+		"headers": map[string]string{"Auto-Submitted": "auto-generated"},
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, resendEndpoint, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+s.ResendKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "LanHound")
+	resp, err := client.Do(req)
+	if err != nil {
+		return scrub(err, s.ResendKey)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		var e struct {
+			Message string `json:"message"`
+		}
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		if json.Unmarshal(raw, &e) != nil || e.Message == "" {
+			e.Message = strings.TrimSpace(string(raw))
+		}
+		return scrub(fmt.Errorf("Resend: HTTP %d: %s", resp.StatusCode, e.Message), s.ResendKey)
+	}
+	return nil
 }

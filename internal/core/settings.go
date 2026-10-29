@@ -67,6 +67,9 @@ func (s *Settings) effective() notify.Settings {
 	if e.SMTPSecurity == "" {
 		e.SMTPSecurity = notify.SMTPStartTLS
 	}
+	if e.EmailVia == "" {
+		e.EmailVia = notify.ViaSMTP
+	}
 	return e
 }
 
@@ -83,6 +86,8 @@ func (s *Settings) fields() []field {
 		{"telegramChatId", &s.env.TelegramChatID, func(n *notify.Settings) *string { return &n.TelegramChatID }},
 		{"telegramApi", &s.env.TelegramAPI, func(n *notify.Settings) *string { return &n.TelegramAPI }},
 		{"webhookUrl", &s.env.WebhookURL, func(n *notify.Settings) *string { return &n.WebhookURL }},
+		{"emailVia", &s.env.EmailVia, func(n *notify.Settings) *string { return &n.EmailVia }},
+		{"resendKey", &s.env.ResendKey, func(n *notify.Settings) *string { return &n.ResendKey }},
 		{"smtpHost", &s.env.SMTPHost, func(n *notify.Settings) *string { return &n.SMTPHost }},
 		{"smtpPort", &s.env.SMTPPort, func(n *notify.Settings) *string { return &n.SMTPPort }},
 		{"smtpSecurity", &s.env.SMTPSecurity, func(n *notify.Settings) *string { return &n.SMTPSecurity }},
@@ -103,6 +108,9 @@ func (s *Settings) Public() PublicSettings {
 	}
 	if p.SMTPPassword != "" {
 		p.SMTPPassword = mask // never reveal any part of a password
+	}
+	if p.ResendKey != "" {
+		p.ResendKey = mask
 	}
 	for _, f := range s.fields() {
 		if *f.env != "" {
@@ -131,6 +139,13 @@ func (s *Settings) Put(n notify.Settings) (notify.Settings, error) {
 	}
 	if strings.HasPrefix(n.SMTPPassword, mask) {
 		n.SMTPPassword = s.cur.SMTPPassword
+	}
+	if strings.HasPrefix(n.ResendKey, mask) {
+		n.ResendKey = s.cur.ResendKey
+	}
+	n.ResendKey = strings.TrimSpace(n.ResendKey)
+	if n.EmailVia != notify.ViaResend {
+		n.EmailVia = notify.ViaSMTP
 	}
 	n.TelegramToken = strings.TrimSpace(n.TelegramToken)
 	n.SMTPHost = strings.TrimSpace(n.SMTPHost)
@@ -166,6 +181,9 @@ func (s *Settings) Resolve(n notify.Settings) notify.Settings {
 	}
 	if strings.HasPrefix(n.SMTPPassword, mask) {
 		n.SMTPPassword = s.cur.SMTPPassword
+	}
+	if strings.HasPrefix(n.ResendKey, mask) {
+		n.ResendKey = s.cur.ResendKey
 	}
 	saved := s.cur
 	s.cur = n
