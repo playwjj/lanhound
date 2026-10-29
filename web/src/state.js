@@ -58,6 +58,11 @@ export function connect() {
       case 'device':
         state.devices[data.id] = data
         break
+      case 'seen': // batched last-seen updates: { id: time }
+        for (const [id, at] of Object.entries(data)) {
+          if (state.devices[id]) state.devices[id].lastSeen = at
+        }
+        break
       case 'remove':
         delete state.devices[data.id]
         break

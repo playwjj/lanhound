@@ -501,8 +501,14 @@ func (r *Registry) Flush() {
 			delete(touched, d.ID)
 		}
 	}
-	for id := range touched {
-		r.publish(r.devices[id])
+	// Only last-seen changed for these: one small message for all of
+	// them instead of a full device view each.
+	if len(touched) > 0 {
+		seen := make(map[int64]time.Time, len(touched))
+		for id, at := range touched {
+			seen[id] = at
+		}
+		r.o.Hub.Publish("seen", seen)
 	}
 }
 
@@ -562,7 +568,7 @@ func (r *Registry) sendDueAlerts(ctx context.Context) {
 			continue
 		}
 		// One of ours under a new random MAC: log it, don't page anyone.
-		if m, ok := r.bestMatch(d); ok && m.Score >= RecognizeScore && r.devices[m.ID].Known {
+		if m, ok := r.bestMatch(d, nil); ok && m.Score >= RecognizeScore && r.devices[m.ID].Known {
 			info := r.info(d)
 			r.raise(notify.Message{Event: notify.EventRecognized, Interface: d.Iface, Devices: []notify.DeviceInfo{info, r.info(r.devices[m.ID])}}, d.ID)
 			continue
@@ -601,9 +607,12 @@ func (r *Registry) info(d *store.Device) notify.DeviceInfo {
 }
 
 // view builds the API representation. Caller holds r.mu.
-func (r *Registry) view(d *store.Device) View {
+func (r *Registry) view(d *store.Device) View { return r.viewWith(d, nil) }
+
+// viewWith is view with a prebuilt feature index, for building many.
+func (r *Registry) viewWith(d *store.Device, idx featureIndex) View {
 	v := View{Device: *d, MACs: append([]string(nil), r.macs[d.ID]...), Randomized: randomized(d.MAC)}
-	if m, ok := r.bestMatch(d); ok {
+	if m, ok := r.bestMatch(d, idx); ok {
 		v.SameAs, v.SameAsWhy = m.ID, m.Reasons
 	}
 	v.Link = link(d, r.o.Now())
@@ -623,8 +632,9 @@ func randomized(mac string) bool {
 func (r *Registry) Devices() []View {
 	r.mu.Lock()
 	out := make([]View, 0, len(r.devices))
+	idx := r.index()
 	for _, d := range r.devices {
-		out = append(out, r.view(d))
+		out = append(out, r.viewWith(d, idx))
 	}
 	r.mu.Unlock()
 	sort.Slice(out, func(i, j int) bool {
