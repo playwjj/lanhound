@@ -1,6 +1,10 @@
 # syntax=docker/dockerfile:1
 # Multi-arch build: the front end and the Go cross-compile run on the
 # build host's platform; only the final scratch image is per-target.
+# BuildKit sets BUILDPLATFORM itself; the default only matters for the
+# legacy builder (Docker without buildx), which leaves it empty. On an
+# ARM host without buildx pass --build-arg BUILDPLATFORM=linux/arm64.
+ARG BUILDPLATFORM=linux/amd64
 
 FROM --platform=$BUILDPLATFORM node:22-alpine AS web
 WORKDIR /src/web

@@ -123,6 +123,7 @@ minute (about 11 minutes by default).
 | Flat home LAN (single subnet) | ✅ |
 | Bypass router / 旁路由 (same subnet) | ✅ nothing to configure: discovery reads each interface's own address/mask, not the default route |
 | Multi-homed host (wired + Wi-Fi, dual NIC) | ✅ one watcher per interface |
+| Docker / VM host | ✅ container and VM bridges (`docker0`, `br-<id>`, `virbr0`…) are skipped automatically; name one in `LANHOUND_INTERFACES` to watch it anyway |
 | ISP modem + router double NAT (modem on 192.168.1.0/24) | ⏳ ARP can't cross a router; reading the modem's device table is planned |
 | VLANs / guest networks / AP isolation | one instance per segment. LanHound only sees its own broadcast domain |
 
