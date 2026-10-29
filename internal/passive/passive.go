@@ -24,7 +24,8 @@ const (
 	SrcMDNS     = "mdns"
 	SrcSSDP     = "ssdp"
 	SrcNBNS     = "nbns"
-	SrcRDNS     = "rdns" // reverse DNS answer from the LAN's resolver (set by the probe package)
+	SrcRDNS     = "rdns"   // reverse DNS answer from the LAN's resolver (set by the probe package)
+	SrcRouter   = "router" // a router's lease/neighbour table (set by the router package)
 )
 
 // UDP ports the passive listener cares about.
@@ -62,7 +63,7 @@ type Sighting struct {
 // whatever the router's DNS made up.
 func HostnamePriority(src string) int {
 	switch src {
-	case SrcDHCP:
+	case SrcDHCP, SrcRouter: // a lease hostname is the device's own DHCP name
 		return 4
 	case SrcMDNS:
 		return 3

@@ -51,9 +51,21 @@ const sections = computed(() => {
   const ifaces = state.status?.interfaces ?? []
   const groups = ifaces.map((i) => ({ key: i.interface + i.network, iface: i, devices: [] }))
   const byName = Object.fromEntries(groups.map((g) => [g.iface.interface, g]))
-  const other = { key: '_other', iface: null, devices: [] }
-  for (const d of filtered.value) (byName[d.interface] ?? other).devices.push(d)
-  if (other.devices.length) groups.push(other)
+  // Devices only a router knows, one section per source; anything else
+  // (an interface that went away) in a catch-all.
+  const routers = Object.fromEntries((state.status?.routers ?? []).map((r) => ['router:' + r.label, r]))
+  const extra = {}
+  for (const d of filtered.value) {
+    const g = byName[d.interface]
+    if (g) {
+      g.devices.push(d)
+      continue
+    }
+    const key = routers[d.interface] || d.interface?.startsWith('router:') ? d.interface : '_other' // (a || b) ? …
+    extra[key] ??= { key, iface: null, router: routers[d.interface] ?? (key !== '_other' ? { label: key.slice(7) } : null), devices: [] }
+    extra[key].devices.push(d)
+  }
+  groups.push(...Object.values(extra))
   for (const g of groups) g.devices.sort((a, b) => b.online - a.online || ipKey(a.ip).localeCompare(ipKey(b.ip)))
   return groups
 })
@@ -161,6 +173,12 @@ async function markAllKnown() {
             <template v-else>{{ t('neverSwept') }}</template>
           </span>
           <span v-if="g.iface.error" class="err" :title="g.iface.error"><Icon name="alert" :size="13" /> {{ g.iface.error }}</span>
+        </template>
+        <template v-else-if="g.router">
+          <strong>{{ t('viaRouter', { name: g.router.label }) }}</strong>
+          <span class="muted hide-sm">{{ t('routerOnly') }}</span>
+          <span v-if="g.router.lastError" class="err" :title="g.router.lastError"><Icon name="alert" :size="13" /> {{ g.router.lastError }}</span>
+          <span v-else-if="g.router.lastPoll" class="muted sweep">{{ t('routerOk', { n: g.router.devices, t: ago(g.router.lastPoll, now) }) }}</span>
         </template>
         <strong v-else>—</strong>
         <span class="grow"></span>

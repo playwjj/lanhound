@@ -5,6 +5,7 @@ import { state, now } from '../state'
 import { t } from '../i18n'
 import { ago, isZero } from '../format'
 import Icon from './Icon.vue'
+import RoutersEditor from './RoutersEditor.vue'
 
 const emit = defineEmits(['close'])
 const form = ref(null)
@@ -12,6 +13,7 @@ const locked = ref([])
 const msg = ref('')
 const err = ref('')
 const busy = ref(false)
+const tab = ref('notify')
 
 onMounted(async () => {
   const s = await api.settings()
@@ -54,13 +56,16 @@ const test = () => act(() => api.testSettings(form.value), t('testOk'))
   <div class="scrim" @click="emit('close')"></div>
   <div class="dialog" role="dialog" :aria-label="t('settings')">
     <header>
-      <Icon name="bell" />
-      <strong>{{ t('notifications') }}</strong>
+      <div class="tabs" role="tablist">
+        <button :class="{ active: tab === 'notify' }" role="tab" @click="tab = 'notify'"><Icon name="bell" :size="14" />{{ t('notifications') }}</button>
+        <button :class="{ active: tab === 'routers' }" role="tab" @click="tab = 'routers'"><Icon name="globe" :size="14" />{{ t('routers') }}</button>
+      </div>
       <span class="grow"></span>
       <button class="btn icon" :title="t('close')" @click="emit('close')"><Icon name="x" /></button>
     </header>
 
-    <form v-if="form" class="body" @submit.prevent="save">
+    <div v-if="tab === 'routers'" class="body"><RoutersEditor /></div>
+    <form v-else-if="form" class="body" @submit.prevent="save">
       <div class="checks">
         <label class="check">
           <input v-model="form.notifyNew" type="checkbox" />
@@ -159,6 +164,25 @@ header {
 }
 .grow {
   flex: 1;
+}
+.tabs {
+  display: inline-flex;
+  gap: 4px;
+}
+.tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: none;
+  padding: 5px 10px;
+  border-radius: 6px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.tabs button.active {
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 .body {
   overflow-y: auto;

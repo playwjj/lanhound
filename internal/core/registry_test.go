@@ -11,6 +11,7 @@ import (
 
 	"github.com/playwjj/lanhound/internal/notify"
 	"github.com/playwjj/lanhound/internal/passive"
+	"github.com/playwjj/lanhound/internal/router"
 	"github.com/playwjj/lanhound/internal/security"
 	"github.com/playwjj/lanhound/internal/store"
 )
@@ -363,5 +364,90 @@ func TestDeliveryRetries(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	if st := h.r.AlertStatus(); st.LastError != "" || st.LastSent.IsZero() {
 		t.Fatalf("status after successful retry %+v", st)
+	}
+}
+
+type fakeSource struct{ entries []router.Entry }
+
+func (f *fakeSource) Fetch(context.Context) ([]router.Entry, error) { return f.entries, nil }
+
+func entry(mac, ip, name string) router.Entry {
+	hw, _ := net.ParseMAC(mac)
+	return router.Entry{MAC: hw, IP: net.ParseIP(ip).To4(), Hostname: name}
+}
+
+func TestRouterEntries(t *testing.T) {
+	h := newHarness(t, "")
+	// A local device, seen by ARP, without a name.
+	h.r.Observe(sight("24:0a:c4:00:00:03", "192.168.2.87"))
+	h.r.EndBaseline()
+
+	src := &fakeSource{entries: []router.Entry{
+		entry("24:0a:c4:00:00:03", "192.168.2.87", "Kitchen-Plug"), // local: gets a name
+		entry("00:1e:a0:11:22:33", "192.168.1.50", "IPTV-Box"),     // only the router knows it
+	}}
+	rt, err := NewRouters(h.st, h.r, NewHub())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt.newSrc = func(router.Config) (router.Source, error) { return src, nil }
+	if _, err := rt.Put([]router.Config{{Kind: router.KindOpenWrt, URL: "http://192.168.1.1", Password: "test-only", Enabled: true}}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := rt.Status()[0]
+	if cfg.Label != "192.168.1.1" || cfg.Password != mask || cfg.ID == "" {
+		t.Fatalf("config %+v", cfg)
+	}
+	rt.pollAll(context.Background())
+
+	byMAC := map[string]View{}
+	for _, v := range h.r.Devices() {
+		byMAC[v.MAC] = v
+	}
+	plug, box := byMAC["24:0a:c4:00:00:03"], byMAC["00:1e:a0:11:22:33"]
+	if plug.Hostname != "Kitchen-Plug" || plug.HostnameSource != passive.SrcRouter || plug.Iface != "eth0" {
+		t.Fatalf("local device %+v", plug)
+	}
+	if box.Iface != "router:192.168.1.1" || !box.Online || box.Hostname != "IPTV-Box" {
+		t.Fatalf("router-only device %+v", box)
+	}
+	h.clk.Add(time.Minute)
+	if got := h.alerts(t); len(got) != 0 {
+		t.Fatalf("first router sync must be silent: %+v", got)
+	}
+
+	// A local device that went quiet stays offline even though the
+	// router's table still lists it.
+	h.clk.Add(11 * time.Minute)
+	h.r.Flush()
+	rt.pollAll(context.Background())
+	if v, _ := h.r.Device(plug.ID); v.Online {
+		t.Fatal("router table must not keep a local device online")
+	}
+	if v, _ := h.r.Device(box.ID); !v.Online {
+		t.Fatal("router-only device should stay online while the router lists it")
+	}
+
+	// Later syncs alert on genuinely new devices.
+	src.entries = append(src.entries, entry("e4:95:6e:40:11:22", "192.168.1.77", "stranger"))
+	rt.pollAll(context.Background())
+	h.clk.Add(time.Minute)
+	if got := h.alerts(t); len(got) != 1 || got[0].Devices[0].Hostname != "stranger" {
+		t.Fatalf("want one new-device alert, got %+v", got)
+	}
+
+	// Once the box shows up on our own wire, it moves to our interface.
+	h.r.Observe(sight("00:1e:a0:11:22:33", "192.168.2.150"))
+	if v, _ := h.r.Device(box.ID); v.Iface != "eth0" {
+		t.Fatalf("iface %q", v.Iface)
+	}
+
+	// The masked password round-trips without being lost.
+	st := rt.Status()
+	if _, err := rt.Put([]router.Config{st[0].Config}); err != nil {
+		t.Fatal(err)
+	}
+	if rt.configs[0].Password != "test-only" {
+		t.Fatalf("password lost: %q", rt.configs[0].Password)
 	}
 }

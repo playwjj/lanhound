@@ -18,6 +18,7 @@ import (
 
 	"github.com/playwjj/lanhound/internal/core"
 	"github.com/playwjj/lanhound/internal/notify"
+	"github.com/playwjj/lanhound/internal/router"
 	"github.com/playwjj/lanhound/internal/scanner"
 )
 
@@ -44,6 +45,7 @@ type Server struct {
 	Hub      *core.Hub
 	Scanner  Scanner
 	Security Security
+	Routers  *core.Routers // nil disables router sources
 	Version  string
 	Interval time.Duration
 	// Password enables HTTP basic auth (any username) when non-empty.
@@ -63,6 +65,7 @@ type Status struct {
 	Notify       bool                `json:"notify"` // a channel is configured
 	Alerts       core.AlertStatus    `json:"alerts"`
 	Gateways     map[string][]string `json:"gateways"` // interface → default gateway(s)
+	Routers      []core.RouterStatus `json:"routers"`
 }
 
 // Status builds the current status payload.
@@ -75,7 +78,12 @@ func (s *Server) Status() Status {
 	if s.Security != nil {
 		gateways = s.Security.Gateways()
 	}
+	routers := []core.RouterStatus{}
+	if s.Routers != nil {
+		routers = s.Routers.Status()
+	}
 	return Status{
+		Routers:      routers,
 		Gateways:     gateways,
 		Version:      s.Version,
 		StartedAt:    s.started,
@@ -113,6 +121,9 @@ func (s *Server) Handler() http.Handler {
 	})
 	mux.HandleFunc("GET /api/alerts", s.alerts)
 	mux.HandleFunc("POST /api/alerts/{id}/trust", s.trustAlert)
+	mux.HandleFunc("GET /api/routers", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, s.routerStatus()) })
+	mux.HandleFunc("PUT /api/routers", s.putRouters)
+	mux.HandleFunc("POST /api/routers/test", s.testRouter)
 	mux.HandleFunc("GET /api/settings", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, s.Settings.Public()) })
 	mux.HandleFunc("PUT /api/settings", s.putSettings)
 	mux.HandleFunc("POST /api/settings/test", s.testSettings)
@@ -303,6 +314,43 @@ func (s *Server) trustAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func (s *Server) routerStatus() []core.RouterStatus {
+	if s.Routers == nil {
+		return []core.RouterStatus{}
+	}
+	return s.Routers.Status()
+}
+
+func (s *Server) putRouters(w http.ResponseWriter, r *http.Request) {
+	if s.Routers == nil {
+		http.Error(w, "router sources are disabled", http.StatusNotFound)
+		return
+	}
+	var list []router.Config
+	if !readJSON(w, r, &list) {
+		return
+	}
+	st, err := s.Routers.Put(list)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.Hub.Publish("status", s.Status())
+	writeJSON(w, st)
+}
+
+func (s *Server) testRouter(w http.ResponseWriter, r *http.Request) {
+	if s.Routers == nil {
+		http.Error(w, "router sources are disabled", http.StatusNotFound)
+		return
+	}
+	var c router.Config
+	if !readJSON(w, r, &c) {
+		return
+	}
+	writeJSON(w, s.Routers.Test(r.Context(), c))
 }
 
 func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {

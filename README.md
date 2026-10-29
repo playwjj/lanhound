@@ -116,6 +116,28 @@ follows up with a request, so no lease is taken. Set
 `LANHOUND_DHCP_PROBE=off` to disable it. The first DHCP server seen is
 trusted; trust others from the alert with one click.
 
+## Router & modem device tables (optional)
+
+ARP only reaches LanHound's own broadcast domain. To also list devices
+behind your router (another subnet, a guest network, the ISP modem side
+of a double NAT) and get DHCP names straight from the lease table, add a
+source under **Settings → Routers**:
+
+- **OpenWrt** (and derivatives such as ImmortalWrt, iStoreOS, Kwrt):
+  enter the LuCI address and the router account. LanHound calls two
+  read-only methods (`luci-rpc getDHCPLeases` / `getHostHints`) every 2
+  minutes.
+- **URL**: anything that serves a dnsmasq lease file, `/proc/net/arp`,
+  `ip neigh` / `arp -a` output or a CSV (`mac,ip,name`). Use this for
+  other routers and modems, for example a cron job that copies the
+  modem's device list somewhere LanHound can fetch it.
+
+Devices on LanHound's own network keep ARP-based presence and only take
+names from the router, because router tables hold stale entries. Devices
+only the router knows are listed in their own section. The first sync of
+a source is silent, like the first sweep. Passwords are stored in the
+local database.
+
 ## Configuration
 
 None required. For the few who want to override something, everything is
@@ -149,7 +171,7 @@ minute (about 11 minutes by default).
 | Bypass router / 旁路由 (same subnet) | ✅ nothing to configure: discovery reads each interface's own address/mask, not the default route |
 | Multi-homed host (wired + Wi-Fi, dual NIC) | ✅ one watcher per interface |
 | Docker / VM host | ✅ container and VM bridges (`docker0`, `br-<id>`, `virbr0`…) are skipped automatically; name one in `LANHOUND_INTERFACES` to watch it anyway |
-| ISP modem + router double NAT (modem on 192.168.1.0/24) | ⏳ ARP can't cross a router; reading the modem's device table is planned |
+| ISP modem + router double NAT (modem on 192.168.1.0/24) | ✅ via a router/modem device-table source (ARP can't cross a router) |
 | VLANs / guest networks / AP isolation | one instance per segment. LanHound only sees its own broadcast domain |
 
 Only run LanHound on networks you own or are authorized to monitor.
@@ -235,8 +257,8 @@ isolated by the access point. Run another instance there.
 - **v0.1**: discovery engine, history, web UI, new-device alerts
 - **v0.2 (this)**: security alerts (ARP spoofing/conflicts, ARP floods,
   gateway MAC change, rogue DHCP), critical devices, alert log, CSV export
-- **Next**: randomized-MAC fingerprinting, modem/router device-table
-  import, IPv6 discovery, presence heat maps
+- **Next**: router/modem device tables (OpenWrt, generic URL),
+  randomized-MAC fingerprinting, IPv6 discovery, presence heat maps
 
 ## License
 

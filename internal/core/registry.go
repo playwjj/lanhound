@@ -13,6 +13,7 @@ import (
 	"github.com/playwjj/lanhound/internal/notify"
 	"github.com/playwjj/lanhound/internal/oui"
 	"github.com/playwjj/lanhound/internal/passive"
+	"github.com/playwjj/lanhound/internal/router"
 	"github.com/playwjj/lanhound/internal/store"
 )
 
@@ -171,19 +172,65 @@ func (r *Registry) EndBaseline() {
 
 // Observe folds one sighting into the device table.
 func (r *Registry) Observe(s passive.Sighting) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.observe(s, false)
+}
+
+// RouterIfacePrefix marks devices known only from a router's table.
+const RouterIfacePrefix = "router:"
+
+func isRouterIface(iface string) bool { return strings.HasPrefix(iface, RouterIfacePrefix) }
+
+// ObserveRouter folds a router's device table in. Devices LanHound sees
+// on its own interfaces only take names (and a missing IP) from it —
+// their presence stays ARP-based, since router tables keep stale
+// entries. Devices only the router knows (another subnet, a guest
+// network) are tracked under the interface "router:<label>". quiet
+// suppresses new-device alerts, for a source's first sync.
+func (r *Registry) ObserveRouter(label string, entries []router.Entry, quiet bool) {
+	now := r.o.Now()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, e := range entries {
+		r.observe(passive.Sighting{
+			Iface: RouterIfacePrefix + label, MAC: e.MAC, IP: e.IP, Source: passive.SrcRouter,
+			Hostname: e.Hostname, HostnameSource: passive.SrcRouter, At: now,
+		}, quiet)
+	}
+}
+
+// observe is Observe with r.mu held; quiet suppresses a new-device alert.
+func (r *Registry) observe(s passive.Sighting, quiet bool) {
 	if s.At.IsZero() {
 		s.At = r.o.Now()
 	}
+	if s.HostnameSource == "" {
+		s.Hostname = ""
+	}
 	mac := s.MAC.String()
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	id, ok := r.byMAC[mac]
 	if !ok {
-		r.addDevice(s, mac)
+		r.addDevice(s, mac, quiet)
 		return
 	}
 	d := r.devices[id]
+	if s.Source == passive.SrcRouter && !isRouterIface(d.Iface) {
+		// A local device: names only.
+		changed := r.applyHostname(d, s.Hostname, s.HostnameSource, s.At)
+		if d.IP == "" && s.IP != nil {
+			d.IP, changed = s.IP.String(), true
+		}
+		if changed {
+			r.check(r.o.Store.UpdateDevice(d))
+			r.publish(d)
+		}
+		return
+	}
+	if s.Source != passive.SrcRouter && isRouterIface(d.Iface) {
+		// Seen first via a router, now on our own wire: ours wins at once.
+		r.ifaceSeen[id] = time.Time{}
+	}
 	changed := false
 	prevSeen := d.LastSeen
 	if s.At.After(d.LastSeen) {
@@ -235,7 +282,7 @@ func (r *Registry) Observe(s passive.Sighting) {
 	}
 }
 
-func (r *Registry) addDevice(s passive.Sighting, mac string) {
+func (r *Registry) addDevice(s passive.Sighting, mac string, quiet bool) {
 	d := &store.Device{
 		MAC:       mac,
 		Vendor:    oui.Lookup(s.MAC),
@@ -261,7 +308,7 @@ func (r *Registry) addDevice(s passive.Sighting, mac string) {
 	r.ifaceSeen[d.ID] = s.At
 	r.check(r.o.Store.OpenSession(d.ID, s.At))
 	r.event(d.ID, s.At, store.EventNew, d.IP)
-	if !r.baseline {
+	if !r.baseline && !quiet {
 		r.pending[d.ID] = s.At.Add(r.o.AlertDelay)
 		log.Printf("registry: new device %s %s (%s)", mac, d.IP, d.Vendor)
 	}

@@ -162,7 +162,11 @@ func serve(args []string) {
 		reg.Observe(s)
 		guard.Observe(s)
 	}
-	srv := &web.Server{Registry: reg, Settings: settings, Hub: hub, Security: guard, Version: version, Interval: *interval, Password: os.Getenv("LANHOUND_PASSWORD")}
+	routers, err := core.NewRouters(st, reg, hub)
+	if err != nil {
+		log.Fatalf("load router sources: %v", err)
+	}
+	srv := &web.Server{Registry: reg, Settings: settings, Hub: hub, Security: guard, Routers: routers, Version: version, Interval: *interval, Password: os.Getenv("LANHOUND_PASSWORD")}
 	publishStatus := func() { hub.Publish("status", srv.Status()) }
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -197,6 +201,9 @@ func serve(args []string) {
 		case <-firstRound:
 			reg.EndBaseline()
 			publishStatus()
+			// Router tables only after our own first sweep, so devices on
+			// the local wire are claimed by their real interface first.
+			go routers.Run(ctx)
 		case <-ctx.Done():
 		}
 	}()

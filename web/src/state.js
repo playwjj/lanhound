@@ -64,6 +64,9 @@ export function connect() {
       case 'status':
         state.status = data
         break
+      case 'routers':
+        if (state.status) state.status.routers = data
+        break
       case 'alerts':
         if (state.status) state.status.alerts = data
         break
