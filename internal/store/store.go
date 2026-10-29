@@ -1,0 +1,375 @@
+// Package store persists devices, their MAC addresses, presence sessions
+// and events in a single SQLite file — easy to back up, easy to move.
+// It uses a pure-Go SQLite driver so the binary stays cgo-free.
+package store
+
+import (
+	"database/sql"
+	"errors"
+	"fmt"
+	"time"
+
+	_ "modernc.org/sqlite"
+)
+
+// Device is one physical device. It may own several MAC addresses once
+// the user merges a phone's randomized MACs into it.
+type Device struct {
+	ID             int64     `json:"id"`
+	Name           string    `json:"name"`
+	Note           string    `json:"note"`
+	Known          bool      `json:"known"`
+	Hostname       string    `json:"hostname"`
+	HostnameSource string    `json:"hostnameSource"`
+	Model          string    `json:"model"`
+	Vendor         string    `json:"vendor"`
+	MAC            string    `json:"mac"` // most recently seen
+	IP             string    `json:"ip"`
+	Iface          string    `json:"interface"`
+	Online         bool      `json:"online"`
+	FirstSeen      time.Time `json:"firstSeen"`
+	LastSeen       time.Time `json:"lastSeen"`
+}
+
+// Event kinds.
+const (
+	EventNew      = "new"
+	EventOnline   = "online"
+	EventOffline  = "offline"
+	EventIP       = "ip"
+	EventHostname = "hostname"
+	EventMerged   = "merged"
+)
+
+// Event is one line of a device's history.
+type Event struct {
+	At     time.Time `json:"at"`
+	Kind   string    `json:"kind"`
+	Detail string    `json:"detail"`
+}
+
+// Session is one continuous online period; End is zero while ongoing.
+type Session struct {
+	Start time.Time `json:"start"`
+	End   time.Time `json:"end"`
+}
+
+// MAC is one hardware address owned by a device.
+type MAC struct {
+	MAC       string    `json:"mac"`
+	DeviceID  int64     `json:"-"`
+	FirstSeen time.Time `json:"firstSeen"`
+}
+
+// Store wraps the database.
+type Store struct{ db *sql.DB }
+
+const schema = `
+CREATE TABLE IF NOT EXISTS devices (
+	id INTEGER PRIMARY KEY AUTOINCREMENT, -- never reuse IDs a browser may still hold
+	name TEXT NOT NULL DEFAULT '',
+	note TEXT NOT NULL DEFAULT '',
+	known INTEGER NOT NULL DEFAULT 0,
+	hostname TEXT NOT NULL DEFAULT '',
+	hostname_source TEXT NOT NULL DEFAULT '',
+	model TEXT NOT NULL DEFAULT '',
+	vendor TEXT NOT NULL DEFAULT '',
+	mac TEXT NOT NULL,
+	ip TEXT NOT NULL DEFAULT '',
+	iface TEXT NOT NULL DEFAULT '',
+	online INTEGER NOT NULL DEFAULT 0,
+	first_seen INTEGER NOT NULL,
+	last_seen INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS macs (
+	mac TEXT PRIMARY KEY,
+	device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+	first_seen INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS macs_device ON macs(device_id);
+CREATE TABLE IF NOT EXISTS sessions (
+	id INTEGER PRIMARY KEY,
+	device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+	start INTEGER NOT NULL,
+	end INTEGER
+);
+CREATE INDEX IF NOT EXISTS sessions_device ON sessions(device_id, start);
+CREATE TABLE IF NOT EXISTS events (
+	id INTEGER PRIMARY KEY,
+	device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+	at INTEGER NOT NULL,
+	kind TEXT NOT NULL,
+	detail TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS events_device ON events(device_id, at);
+CREATE TABLE IF NOT EXISTS settings (
+	key TEXT PRIMARY KEY,
+	value TEXT NOT NULL
+);
+`
+
+// Open opens (creating if needed) the database at path.
+func Open(path string) (*Store, error) {
+	dsn := "file:" + path + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)"
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, err
+	}
+	// One connection: SQLite has a single writer anyway, and this keeps
+	// the memory footprint small.
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec(schema); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("init schema: %w", err)
+	}
+	return &Store{db: db}, nil
+}
+
+// Close closes the database.
+func (s *Store) Close() error { return s.db.Close() }
+
+func unix(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.Unix()
+}
+
+func fromUnix(v int64) time.Time {
+	if v == 0 {
+		return time.Time{}
+	}
+	return time.Unix(v, 0)
+}
+
+func b2i(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// Devices loads every device and every MAC address.
+func (s *Store) Devices() ([]*Device, []MAC, error) {
+	rows, err := s.db.Query(`SELECT id, name, note, known, hostname, hostname_source, model, vendor, mac, ip, iface, online, first_seen, last_seen FROM devices`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	var devs []*Device
+	for rows.Next() {
+		d := &Device{}
+		var known, online int
+		var first, last int64
+		if err := rows.Scan(&d.ID, &d.Name, &d.Note, &known, &d.Hostname, &d.HostnameSource, &d.Model, &d.Vendor, &d.MAC, &d.IP, &d.Iface, &online, &first, &last); err != nil {
+			return nil, nil, err
+		}
+		d.Known, d.Online = known != 0, online != 0
+		d.FirstSeen, d.LastSeen = fromUnix(first), fromUnix(last)
+		devs = append(devs, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	mrows, err := s.db.Query(`SELECT mac, device_id, first_seen FROM macs`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer mrows.Close()
+	var macs []MAC
+	for mrows.Next() {
+		var m MAC
+		var first int64
+		if err := mrows.Scan(&m.MAC, &m.DeviceID, &first); err != nil {
+			return nil, nil, err
+		}
+		m.FirstSeen = fromUnix(first)
+		macs = append(macs, m)
+	}
+	return devs, macs, mrows.Err()
+}
+
+// InsertDevice stores a new device together with its first MAC and sets d.ID.
+func (s *Store) InsertDevice(d *Device) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`INSERT INTO devices (name, note, known, hostname, hostname_source, model, vendor, mac, ip, iface, online, first_seen, last_seen)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		d.Name, d.Note, b2i(d.Known), d.Hostname, d.HostnameSource, d.Model, d.Vendor, d.MAC, d.IP, d.Iface, b2i(d.Online), unix(d.FirstSeen), unix(d.LastSeen))
+	if err != nil {
+		return err
+	}
+	if d.ID, err = res.LastInsertId(); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT INTO macs (mac, device_id, first_seen) VALUES (?,?,?)`, d.MAC, d.ID, unix(d.FirstSeen)); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// UpdateDevice writes every mutable field of d.
+func (s *Store) UpdateDevice(d *Device) error {
+	_, err := s.db.Exec(`UPDATE devices SET name=?, note=?, known=?, hostname=?, hostname_source=?, model=?, vendor=?, mac=?, ip=?, iface=?, online=?, first_seen=?, last_seen=? WHERE id=?`,
+		d.Name, d.Note, b2i(d.Known), d.Hostname, d.HostnameSource, d.Model, d.Vendor, d.MAC, d.IP, d.Iface, b2i(d.Online), unix(d.FirstSeen), unix(d.LastSeen), d.ID)
+	return err
+}
+
+// TouchDevices bulk-updates last-seen times.
+func (s *Store) TouchDevices(lastSeen map[int64]time.Time) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	stmt, err := tx.Prepare(`UPDATE devices SET last_seen=? WHERE id=?`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for id, t := range lastSeen {
+		if _, err := stmt.Exec(unix(t), id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// DeleteDevice forgets a device, its MACs and its history.
+func (s *Store) DeleteDevice(id int64) error {
+	_, err := s.db.Exec(`DELETE FROM devices WHERE id=?`, id)
+	return err
+}
+
+// Merge moves src's MACs, sessions and events to dst and deletes src.
+// dst must already hold the merged field values (the caller decides
+// which name/note/first-seen wins).
+func (s *Store) Merge(src int64, dst *Device) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, q := range []string{
+		`UPDATE macs SET device_id=? WHERE device_id=?`,
+		`UPDATE sessions SET device_id=? WHERE device_id=?`,
+		`UPDATE events SET device_id=? WHERE device_id=?`,
+	} {
+		if _, err := tx.Exec(q, dst.ID, src); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`DELETE FROM devices WHERE id=?`, src); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE devices SET name=?, note=?, known=?, hostname=?, hostname_source=?, model=?, vendor=?, mac=?, ip=?, iface=?, online=?, first_seen=?, last_seen=? WHERE id=?`,
+		dst.Name, dst.Note, b2i(dst.Known), dst.Hostname, dst.HostnameSource, dst.Model, dst.Vendor, dst.MAC, dst.IP, dst.Iface, b2i(dst.Online), unix(dst.FirstSeen), unix(dst.LastSeen), dst.ID); err != nil {
+		return err
+	}
+	// Two open sessions would overlap after a merge; close all but the latest.
+	if _, err := tx.Exec(`UPDATE sessions SET end=? WHERE device_id=? AND end IS NULL AND id <> (SELECT MAX(id) FROM sessions WHERE device_id=? AND end IS NULL)`,
+		unix(time.Now()), dst.ID, dst.ID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// MarkAllKnown sets known=1 on every device.
+func (s *Store) MarkAllKnown() error {
+	_, err := s.db.Exec(`UPDATE devices SET known=1`)
+	return err
+}
+
+// OpenSession starts an online period.
+func (s *Store) OpenSession(deviceID int64, start time.Time) error {
+	_, err := s.db.Exec(`INSERT INTO sessions (device_id, start) VALUES (?,?)`, deviceID, unix(start))
+	return err
+}
+
+// CloseSession ends the device's open online period, if any.
+func (s *Store) CloseSession(deviceID int64, end time.Time) error {
+	_, err := s.db.Exec(`UPDATE sessions SET end=? WHERE device_id=? AND end IS NULL`, unix(end), deviceID)
+	return err
+}
+
+// AddEvent appends to a device's history.
+func (s *Store) AddEvent(deviceID int64, at time.Time, kind, detail string) error {
+	_, err := s.db.Exec(`INSERT INTO events (device_id, at, kind, detail) VALUES (?,?,?,?)`, deviceID, unix(at), kind, detail)
+	return err
+}
+
+// Events returns a device's most recent events, newest first.
+func (s *Store) Events(deviceID int64, limit int) ([]Event, error) {
+	rows, err := s.db.Query(`SELECT at, kind, detail FROM events WHERE device_id=? ORDER BY at DESC, id DESC LIMIT ?`, deviceID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Event{}
+	for rows.Next() {
+		var e Event
+		var at int64
+		if err := rows.Scan(&at, &e.Kind, &e.Detail); err != nil {
+			return nil, err
+		}
+		e.At = fromUnix(at)
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// Sessions returns a device's online periods overlapping [since, now],
+// oldest first.
+func (s *Store) Sessions(deviceID int64, since time.Time) ([]Session, error) {
+	rows, err := s.db.Query(`SELECT start, COALESCE(end, 0) FROM sessions WHERE device_id=? AND (end IS NULL OR end >= ?) ORDER BY start`, deviceID, unix(since))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Session{}
+	for rows.Next() {
+		var start, end int64
+		if err := rows.Scan(&start, &end); err != nil {
+			return nil, err
+		}
+		out = append(out, Session{Start: fromUnix(start), End: fromUnix(end)})
+	}
+	return out, rows.Err()
+}
+
+// Prune deletes history (events and closed sessions) older than before.
+func (s *Store) Prune(before time.Time) (int64, error) {
+	var total int64
+	for _, q := range []string{
+		`DELETE FROM events WHERE at < ?`,
+		`DELETE FROM sessions WHERE end IS NOT NULL AND end < ?`,
+	} {
+		res, err := s.db.Exec(q, unix(before))
+		if err != nil {
+			return total, err
+		}
+		n, _ := res.RowsAffected()
+		total += n
+	}
+	return total, nil
+}
+
+// Setting returns a stored setting, or "" when unset.
+func (s *Store) Setting(key string) (string, error) {
+	var v string
+	err := s.db.QueryRow(`SELECT value FROM settings WHERE key=?`, key).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return v, err
+}
+
+// SetSetting stores a setting.
+func (s *Store) SetSetting(key, value string) error {
+	_, err := s.db.Exec(`INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, value)
+	return err
+}

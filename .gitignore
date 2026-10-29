@@ -1,4 +1,10 @@
 /lanhound
+/data/
 dist/
+!internal/web/dist/
 *.test
 oui.txt
+web/node_modules/
+*.db
+*.db-shm
+*.db-wal
