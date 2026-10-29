@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"time"
 
 	"github.com/playwjj/lanhound/internal/notify"
@@ -45,10 +44,10 @@ func (r *Registry) raise(m notify.Message, deviceID int64) {
 	data, _ := json.Marshal(m)
 	a := &store.Alert{At: r.o.Now(), Kind: m.Event, DeviceID: deviceID, Data: data}
 	if err := r.o.Store.AddAlert(a); err != nil {
-		log.Printf("alerts: store: %v", err)
+		lg().Error("cannot record alert", "err", err)
 	}
 	r.o.Hub.Publish("alert", alertView(*a))
-	log.Printf("alert: %s %s", m.Event, m.IP)
+	lg().Info("alert", "event", m.Event, "ip", m.IP, "devices", len(m.Devices))
 	go r.deliver(m)
 }
 
@@ -81,9 +80,9 @@ func (r *Registry) deliver(m notify.Message) {
 			return
 		}
 		if i < len(retryDelays)-1 {
-			log.Printf("alerts: %v (retrying in %s)", err, retryDelays[i+1])
+			lg().Warn("alert delivery failed, will retry", "event", m.Event, "retry_in", retryDelays[i+1].String(), "err", err)
 		} else {
-			log.Printf("alerts: %v (giving up)", err)
+			lg().Error("alert delivery failed, giving up", "event", m.Event, "err", err)
 		}
 	}
 }

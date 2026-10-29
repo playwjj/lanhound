@@ -15,7 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/url"
 	"strconv"
 	"strings"
@@ -25,6 +25,7 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 
 	"github.com/playwjj/lanhound/internal/core"
+	"github.com/playwjj/lanhound/internal/logx"
 	"github.com/playwjj/lanhound/internal/notify"
 	"github.com/playwjj/lanhound/internal/store"
 )
@@ -77,6 +78,8 @@ type Bridge struct {
 	language func() string
 	version  string
 	envURL   string // LANHOUND_MQTT_URL, wins over the UI
+
+	failures logx.Failures
 
 	mu        sync.Mutex
 	cfg       Config
@@ -297,7 +300,7 @@ func (b *Bridge) setStatus(f func(*Status)) {
 func (b *Bridge) session(ctx context.Context, cfg Config) {
 	cl, err := connect(cfg, "lanhound-"+strconv.FormatInt(time.Now().Unix()%1e6, 10), true)
 	if err != nil {
-		log.Printf("hass: %v", err)
+		b.failures.Fail(lg(), "connect", "cannot connect to MQTT broker", err, "broker", redactURL(cfg.URL))
 		b.setStatus(func(s *Status) { s.Connected, s.LastError = false, err.Error() })
 		return
 	}
@@ -306,7 +309,8 @@ func (b *Bridge) session(ctx context.Context, cfg Config) {
 		cl.Disconnect(250)
 		b.setStatus(func(s *Status) { s.Connected = false })
 	}()
-	log.Printf("hass: connected to %s", redactURL(cfg.URL))
+	b.failures.OK(lg(), "connect", "MQTT broker reachable again", "broker", redactURL(cfg.URL))
+	lg().Info("connected to MQTT broker", "broker", redactURL(cfg.URL))
 	b.mu.Lock()
 	b.published = map[int64]string{}
 	b.mu.Unlock()
@@ -406,9 +410,11 @@ func (b *Bridge) handle(p publisher, cfg Config, raw []byte) bool {
 
 func (b *Bridge) logErr(err error) {
 	if err != nil {
-		log.Printf("hass: %v", err)
+		b.failures.Fail(lg(), "publish", "MQTT publish failed", err)
 		b.setStatus(func(s *Status) { s.LastError = err.Error() })
+		return
 	}
+	b.failures.OK(lg(), "publish", "MQTT publishing again")
 }
 
 func deviceTopic(id int64) string { return base + "/device/" + strconv.FormatInt(id, 10) }
@@ -571,3 +577,5 @@ func (b *Bridge) alert(p publisher, a store.Alert) error {
 	})
 	return p.Publish(base+"/alert", false, raw)
 }
+
+func lg() *slog.Logger { return logx.L("hass") }

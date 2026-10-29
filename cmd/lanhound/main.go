@@ -18,7 +18,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -34,6 +34,7 @@ import (
 	"github.com/playwjj/lanhound/internal/core"
 	"github.com/playwjj/lanhound/internal/demo"
 	"github.com/playwjj/lanhound/internal/hass"
+	"github.com/playwjj/lanhound/internal/logx"
 	"github.com/playwjj/lanhound/internal/netutil"
 	"github.com/playwjj/lanhound/internal/notify"
 	"github.com/playwjj/lanhound/internal/oui"
@@ -97,7 +98,16 @@ func splitList(s string) []string {
 	return strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' })
 }
 
+// setupLogging applies LANHOUND_LOG_LEVEL and LANHOUND_LOG_FORMAT.
+func setupLogging() {
+	if err := logx.Setup(os.Getenv("LANHOUND_LOG_LEVEL"), os.Getenv("LANHOUND_LOG_FORMAT"), os.Stderr); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+}
+
 func serve(args []string) {
+	setupLogging()
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	listen := fs.String("listen", env("LANHOUND_LISTEN", ":8686"), "web UI address (env LANHOUND_LISTEN)")
 	dataDir := fs.String("data", env("LANHOUND_DATA", "data"), "directory for lanhound.db (env LANHOUND_DATA)")
@@ -113,15 +123,15 @@ func serve(args []string) {
 	if *dhcpProbe != "off" && *dhcpProbe != "0" {
 		d, err := time.ParseDuration(*dhcpProbe)
 		if err != nil || d < time.Minute {
-			log.Fatal("LANHOUND_DHCP_PROBE must be a duration of at least 1m, or \"off\"")
+			logx.Fatal("LANHOUND_DHCP_PROBE must be a duration of at least 1m, or \"off\"", "value", *dhcpProbe)
 		}
 		probeEvery = d
 	}
 	if *interval < 30*time.Second {
-		log.Fatal("scan interval must be at least 30s")
+		logx.Fatal("scan interval must be at least 30s", "interval", interval.String())
 	}
 	if err := os.MkdirAll(*dataDir, 0o700); err != nil { // holds secrets: owner only
-		log.Fatal(err)
+		logx.Fatal("cannot create data directory", "dir", *dataDir, "err", err)
 	}
 	dbName := "lanhound.db"
 	if *demoMode {
@@ -129,7 +139,7 @@ func serve(args []string) {
 	}
 	st, err := store.Open(filepath.Join(*dataDir, dbName))
 	if err != nil {
-		log.Fatalf("open database: %v", err)
+		logx.Fatal("cannot open database", "err", err)
 	}
 	defer st.Close()
 
@@ -141,7 +151,7 @@ func serve(args []string) {
 		WebhookURL:     os.Getenv("LANHOUND_WEBHOOK_URL"),
 	})
 	if err != nil {
-		log.Fatalf("load settings: %v", err)
+		logx.Fatal("cannot load settings", "err", err)
 	}
 
 	const window = 6 * time.Second
@@ -159,7 +169,7 @@ func serve(args []string) {
 	}
 	reg, err := core.NewRegistry(opts)
 	if err != nil {
-		log.Fatalf("load devices: %v", err)
+		logx.Fatal("cannot load devices", "err", err)
 	}
 
 	guard := security.New(st, reg.RaiseFinding)
@@ -169,11 +179,11 @@ func serve(args []string) {
 	}
 	routers, err := core.NewRouters(st, reg, hub)
 	if err != nil {
-		log.Fatalf("load router sources: %v", err)
+		logx.Fatal("cannot load router sources", "err", err)
 	}
 	bridge, err := hass.New(st, reg, hub, func() string { return settings.Get().Language }, version, os.Getenv("LANHOUND_MQTT_URL"))
 	if err != nil {
-		log.Fatalf("load Home Assistant settings: %v", err)
+		logx.Fatal("cannot load Home Assistant settings", "err", err)
 	}
 	probes, err := core.NewProbes(st, func(s passive.Sighting, quiet bool) {
 		if quiet {
@@ -184,7 +194,7 @@ func serve(args []string) {
 		guard.Observe(s)
 	})
 	if err != nil {
-		log.Fatalf("load probes: %v", err)
+		logx.Fatal("cannot load probes", "err", err)
 	}
 	reg.SetIfaceStale(probes.Stale)
 	guard.SetExtraGateways(probes.Gateways)
@@ -199,7 +209,7 @@ func serve(args []string) {
 		return false
 	})
 	if err != nil {
-		log.Fatalf("load service scan settings: %v", err)
+		logx.Fatal("cannot load service scan settings", "err", err)
 	}
 	srv := &web.Server{Registry: reg, Settings: settings, Hub: hub, Security: guard, Routers: routers, HASS: bridge, Services: svcScan, Probes: probes, Version: version, Interval: *interval, Password: os.Getenv("LANHOUND_PASSWORD")}
 	publishStatus := func() { hub.Publish("status", srv.Status()) }
@@ -213,7 +223,7 @@ func serve(args []string) {
 		guard.SetGateways(demo.Gateways())
 		srv.Scanner, srv.Interval, firstRound = d, 10*time.Second, d.FirstRound()
 		go d.Run(ctx)
-		log.Print("demo mode: simulating a home network, nothing is scanned")
+		slog.Info("demo mode: simulating a home network, nothing is scanned")
 	} else {
 		eng := scanner.New(scanner.Config{
 			Interval:       *interval,
@@ -228,7 +238,7 @@ func serve(args []string) {
 		go eng.Run(ctx)
 		go guard.Run(ctx)
 		for _, s := range eng.Skipped() {
-			log.Print("note: ", s)
+			slog.Info("interface skipped", "reason", s)
 		}
 	}
 	go func() {
@@ -253,9 +263,9 @@ func serve(args []string) {
 		defer cancel()
 		_ = httpSrv.Shutdown(shutdown)
 	}()
-	log.Printf("LanHound %s: web UI on %s, data in %s", version, displayAddr(*listen), *dataDir)
+	slog.Info("LanHound started", "version", version, "ui", displayAddr(*listen), "data", *dataDir)
 	if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatal(err)
+		logx.Fatal("web server failed", "listen", *listen, "err", err)
 	}
 	reg.Flush()
 }
@@ -338,6 +348,7 @@ func scan(args []string) {
 
 // agentCmd runs a remote probe: scan here, report to a central LanHound.
 func agentCmd(args []string) {
+	setupLogging()
 	fs := flag.NewFlagSet("agent", flag.ExitOnError)
 	server := fs.String("server", env("LANHOUND_SERVER", ""), "central LanHound URL, e.g. http://192.168.2.22:8686 (env LANHOUND_SERVER)")
 	token := fs.String("token", env("LANHOUND_TOKEN", ""), "probe token from Settings → Discovery → Probes (env LANHOUND_TOKEN)")
@@ -346,7 +357,7 @@ func agentCmd(args []string) {
 	rate := fs.Int("rate", envInt("LANHOUND_SCAN_RATE", 300), "max ARP requests per second per interface (env LANHOUND_SCAN_RATE)")
 	_ = fs.Parse(args)
 	if *server == "" || *token == "" {
-		log.Fatal("agent needs --server and --token (or LANHOUND_SERVER / LANHOUND_TOKEN)")
+		logx.Fatal("agent needs --server and --token (or LANHOUND_SERVER / LANHOUND_TOKEN)")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -355,9 +366,9 @@ func agentCmd(args []string) {
 	eng := scanner.New(scanner.Config{Interval: *interval, Rate: *rate, Only: splitList(*ifaces), OnSighting: a.Collect})
 	a.Status = eng.Status
 	go eng.Run(ctx)
-	log.Printf("LanHound %s agent: reporting to %s", version, *server)
+	slog.Info("LanHound agent started", "version", version, "server", *server)
 	if err := a.Run(ctx); err != nil {
-		log.Fatal(err)
+		logx.Fatal("agent stopped", "err", err)
 	}
 }
 

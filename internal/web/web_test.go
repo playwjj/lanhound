@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/playwjj/lanhound/internal/core"
+	"github.com/playwjj/lanhound/internal/logx"
 	"github.com/playwjj/lanhound/internal/notify"
 	"github.com/playwjj/lanhound/internal/passive"
 	"github.com/playwjj/lanhound/internal/scanner"
@@ -330,5 +331,21 @@ func TestIngestAPI(t *testing.T) {
 	_ = json.NewDecoder(resp.Body).Decode(&st2)
 	if len(st2.Interfaces) != 2 || st2.Interfaces[1].Interface != "guest/eth0" || len(st2.Probes) != 1 || !st2.Probes[0].Online {
 		t.Fatalf("status %+v", st2)
+	}
+}
+
+func TestDiagnostics(t *testing.T) {
+	if err := logx.Setup("error", "text", io.Discard); err != nil { // as main does
+		t.Fatal(err)
+	}
+	ts, _, _ := setup(t, "")
+	logx.L("router").Warn("cannot read router", "router", "OpenWrt", "err", "HTTP 401")
+	var d struct {
+		Version string
+		Logs    []logx.Entry
+	}
+	_ = json.NewDecoder(do(t, "GET", ts.URL+"/api/diagnostics", "", nil).Body).Decode(&d)
+	if d.Version != "test" || len(d.Logs) == 0 || d.Logs[0].Msg != "cannot read router" || d.Logs[0].Attrs["err"] != "HTTP 401" {
+		t.Fatalf("diagnostics %+v", d)
 	}
 }

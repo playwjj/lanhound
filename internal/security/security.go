@@ -16,13 +16,14 @@ package security
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/playwjj/lanhound/internal/logx"
 	"github.com/playwjj/lanhound/internal/netutil"
 	"github.com/playwjj/lanhound/internal/notify"
 	"github.com/playwjj/lanhound/internal/passive"
@@ -271,7 +272,7 @@ func (g *Guard) gatewayMAC(s passive.Sighting, claims map[string]*claim) []Findi
 	key := "security.gateway." + s.Iface + "." + s.IP.String()
 	stored, err := g.store.Setting(key)
 	if err != nil {
-		log.Printf("security: %v", err)
+		lg().Error("cannot persist security state", "err", err)
 		return nil
 	}
 	mac := s.MAC.String()
@@ -284,7 +285,7 @@ func (g *Guard) gatewayMAC(s passive.Sighting, claims map[string]*claim) []Findi
 		}
 	}
 	if err := g.store.SetSetting(key, mac); err != nil {
-		log.Printf("security: %v", err)
+		lg().Error("cannot persist security state", "err", err)
 	}
 	if stored == "" {
 		return nil // first time we learn it
@@ -314,13 +315,13 @@ func (g *Guard) dhcpServer(s passive.Sighting) []Finding {
 	key := dhcpKey(s)
 	trusted, err := g.trusted(s.Iface)
 	if err != nil {
-		log.Printf("security: %v", err)
+		lg().Error("cannot persist security state", "err", err)
 		return nil
 	}
 	if len(trusted) == 0 {
-		log.Printf("security: trusting DHCP server %s on %s (first seen)", key, s.Iface)
+		lg().Info("trusting DHCP server (first seen)", "server", key, "iface", s.Iface)
 		if err := g.saveTrusted(s.Iface, []string{key}); err != nil {
-			log.Printf("security: %v", err)
+			lg().Error("cannot persist security state", "err", err)
 		}
 		return nil
 	}
@@ -382,3 +383,5 @@ func mustMAC(s string) net.HardwareAddr {
 	hw, _ := net.ParseMAC(s)
 	return hw
 }
+
+func lg() *slog.Logger { return logx.L("security") }

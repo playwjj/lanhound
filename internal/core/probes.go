@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"log"
 	"net"
 	"regexp"
 	"sort"
@@ -242,7 +241,7 @@ func (p *Probes) Ingest(token string, u Upload) error {
 				// later ones alert.
 				st.synced = true
 				_ = p.store.SetSetting("probe.synced."+rec.ID, "1")
-				log.Printf("probe %s: first sweep done, alerting on new devices from now on", rec.Name)
+				lg().Info("probe finished its first sweep; alerting on new devices from now on", "probe", rec.Name)
 				break
 			}
 		}

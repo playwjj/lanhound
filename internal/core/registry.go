@@ -3,13 +3,14 @@ package core
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/playwjj/lanhound/internal/logx"
 	"github.com/playwjj/lanhound/internal/notify"
 	"github.com/playwjj/lanhound/internal/oui"
 	"github.com/playwjj/lanhound/internal/passive"
@@ -181,7 +182,7 @@ func (r *Registry) EndBaseline() {
 	n := len(r.devices)
 	r.mu.Unlock()
 	if was {
-		log.Printf("registry: baseline complete, %d device(s) recorded; alerting on new devices from now on", n)
+		lg().Info("baseline complete; alerting on new devices from now on", "devices", n)
 		r.o.Hub.Publish("baseline", false)
 	}
 }
@@ -356,7 +357,7 @@ func (r *Registry) addDevice(s passive.Sighting, mac string, quiet bool) {
 		d.Hostname, d.HostnameSource = s.Hostname, s.HostnameSource
 	}
 	if err := r.o.Store.InsertDevice(d); err != nil {
-		log.Printf("registry: insert %s: %v", mac, err)
+		lg().Error("cannot store new device", "mac", mac, "err", err)
 		return
 	}
 	r.devices[d.ID] = d
@@ -367,7 +368,7 @@ func (r *Registry) addDevice(s passive.Sighting, mac string, quiet bool) {
 	r.event(d.ID, s.At, store.EventNew, d.IP)
 	if !r.baseline && !quiet {
 		r.pending[d.ID] = s.At.Add(r.o.AlertDelay)
-		log.Printf("registry: new device %s %s (%s)", mac, d.IP, d.Vendor)
+		lg().Info("new device", "mac", mac, "ip", d.IP, "vendor", d.Vendor, "iface", d.Iface)
 	}
 	r.publish(d)
 	if d.Hostname == "" {
@@ -411,6 +412,7 @@ func (r *Registry) applyHostname(d *store.Device, name, src string, at time.Time
 	}
 	if name != d.Hostname {
 		r.event(d.ID, at, store.EventHostname, name+" ("+src+")")
+		lg().Debug("hostname", "mac", d.MAC, "name", name, "source", src)
 	}
 	d.Hostname, d.HostnameSource = name, src
 	return true
@@ -422,7 +424,7 @@ func (r *Registry) event(id int64, at time.Time, kind, detail string) {
 
 func (r *Registry) check(err error) {
 	if err != nil {
-		log.Printf("registry: store: %v", err)
+		lg().Error("database write failed", "err", err)
 	}
 }
 
@@ -507,9 +509,9 @@ func (r *Registry) Flush() {
 func (r *Registry) prune() {
 	n, err := r.o.Store.Prune(r.o.Now().Add(-r.o.Retention))
 	if err != nil {
-		log.Printf("registry: prune: %v", err)
+		lg().Error("cannot prune history", "err", err)
 	} else if n > 0 {
-		log.Printf("registry: pruned %d history rows older than %s", n, r.o.Retention)
+		lg().Info("pruned old history", "rows", n, "older_than", r.o.Retention.String())
 	}
 }
 
@@ -530,6 +532,7 @@ func (r *Registry) probeWorker(ctx context.Context) {
 				continue
 			}
 			name, src := r.o.Resolve(ctx, ip)
+			lg().Debug("name probe", "ip", ip.String(), "name", name, "source", src)
 			if name == "" {
 				continue
 			}
@@ -832,3 +835,5 @@ func firstNonEmpty(s ...string) string {
 	}
 	return ""
 }
+
+func lg() *slog.Logger { return logx.L("registry") }

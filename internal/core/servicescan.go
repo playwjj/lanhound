@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"log"
 	"sync"
 	"time"
 
@@ -108,7 +107,7 @@ func (s *ServiceScan) probe(ctx context.Context, id int64) {
 		Gateway: s.gateway != nil && s.gateway(v.IP),
 	})
 	if len(svcs) > 0 {
-		log.Printf("services: %s %s: %s (%s)", v.IP, v.MAC, services.Summary(svcs), kind)
+		lg().Info("services identified", "ip", v.IP, "mac", v.MAC, "services", services.Summary(svcs), "kind", kind)
 	}
 	s.registry.setServices(id, svcs, kind)
 }

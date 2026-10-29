@@ -13,7 +13,7 @@ package scanner
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"math/rand/v2"
 	"net"
 	"sort"
@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/playwjj/lanhound/internal/arp"
+	"github.com/playwjj/lanhound/internal/logx"
 	"github.com/playwjj/lanhound/internal/netutil"
 	"github.com/playwjj/lanhound/internal/passive"
 )
@@ -166,12 +167,12 @@ func (e *Engine) refresh(ctx context.Context) []*worker {
 		w := newWorker(t, e.cfg)
 		e.workers[key] = w
 		started = append(started, w)
-		log.Printf("scanner: watching %s %s (%d hosts)", t.Iface.Name, t.Network, len(t.Hosts))
+		lg().Info("watching interface", "iface", t.Iface.Name, "network", t.Network.String(), "hosts", len(t.Hosts))
 		go w.run(ctx)
 	}
 	for key, w := range e.workers {
 		if !seen[key] {
-			log.Printf("scanner: %s %s went away", w.t.Iface.Name, w.t.Network)
+			lg().Info("interface went away", "iface", w.t.Iface.Name, "network", w.t.Network.String())
 			w.stop()
 			delete(e.workers, key)
 			changed = true
@@ -310,7 +311,7 @@ func (w *worker) run(parent context.Context) {
 		if l, err = openLinkFunc(w.t.Iface); err == nil {
 			break
 		}
-		log.Printf("scanner: %v", err)
+		failures.Fail(lg(), "open:"+w.t.Iface.Name, "cannot open raw socket", err, "iface", w.t.Iface.Name)
 		w.update(func(s *Status) { s.Error = err.Error() })
 		w.markFirstDone()
 		select {
@@ -338,7 +339,7 @@ func (w *worker) run(parent context.Context) {
 			lastDHCPProbe = time.Now()
 			// Offers arrive during the sweep's listen window.
 			if err := l.Write(passive.BuildDHCPDiscover(w.t.Iface.HardwareAddr, rand.Uint32())); err != nil {
-				log.Printf("scanner: DHCP probe on %s: %v", w.t.Iface.Name, err)
+				failures.Fail(lg(), "dhcp:"+w.t.Iface.Name, "DHCP probe failed", err, "iface", w.t.Iface.Name)
 			}
 		}
 		w.sweep(ctx, l)
@@ -365,7 +366,7 @@ func (w *worker) sweep(ctx context.Context, l link) {
 	// on the link answers, and the listener records the replies.
 	for i, src := range ipv6Sources(w.t.Iface) {
 		if err := l.Write(passive.BuildEchoAllNodes(w.t.Iface.HardwareAddr, src, 0x4c48, uint16(i+1))); err != nil {
-			log.Printf("scanner: IPv6 echo on %s: %v", w.t.Iface.Name, err)
+			failures.Fail(lg(), "echo6:"+w.t.Iface.Name, "IPv6 echo failed", err, "iface", w.t.Iface.Name)
 		}
 	}
 
@@ -381,6 +382,7 @@ func (w *worker) sweep(ctx context.Context, l link) {
 	n := len(w.replies)
 	w.replies = nil
 	w.mu.Unlock()
+	lg().Debug("sweep done", "iface", w.t.Iface.Name, "replies", n, "err", err)
 	w.update(func(s *Status) {
 		s.Sweeping = false
 		if err != nil {
@@ -400,7 +402,7 @@ func (w *worker) listen(ctx context.Context, l link) {
 		n, outgoing, err := l.Read(buf)
 		if err != nil {
 			if !errors.Is(err, errTimeout) && ctx.Err() == nil {
-				log.Printf("scanner: read %s: %v", w.t.Iface.Name, err)
+				failures.Fail(lg(), "read:"+w.t.Iface.Name, "cannot read from interface", err, "iface", w.t.Iface.Name)
 				time.Sleep(time.Second)
 			}
 			continue
@@ -577,3 +579,9 @@ func ipLess(a, b net.IP) bool {
 	}
 	return false
 }
+
+// failures collapses errors retried every sweep or read into one line
+// each way.
+var failures logx.Failures
+
+func lg() *slog.Logger { return logx.L("scanner") }

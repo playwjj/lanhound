@@ -132,6 +132,8 @@ docker run -d --name lanhound-agent --restart unless-stopped --network host --ca
 | `LANHOUND_RETENTION_DAYS` | `90` | 历史保留天数 |
 | `LANHOUND_DHCP_PROBE` | `30m` | DHCP 服务器探测间隔，`off` 为关闭 |
 | `LANHOUND_MQTT_URL` | — | Home Assistant 的 MQTT 服务器（优先于界面设置） |
+| `LANHOUND_LOG_LEVEL` | `info` | 日志级别：`debug`、`info`、`warn`、`error` |
+| `LANHOUND_LOG_FORMAT` | `text` | `text` 或 `json`（接日志收集系统时用） |
 | `LANHOUND_PASSWORD` | — | 给界面加 HTTP Basic 密码（用户名随意） |
 | `LANHOUND_LANG` | `en` | 报警语言：`en` 或 `zh` |
 | `TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID` | — | Telegram 报警 |

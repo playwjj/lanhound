@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,6 +17,7 @@ import (
 
 	"github.com/playwjj/lanhound/internal/core"
 	"github.com/playwjj/lanhound/internal/hass"
+	"github.com/playwjj/lanhound/internal/logx"
 	"github.com/playwjj/lanhound/internal/notify"
 	"github.com/playwjj/lanhound/internal/router"
 	"github.com/playwjj/lanhound/internal/scanner"
@@ -151,6 +151,9 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, map[string]bool{"ok": true})
 	})
 	mux.HandleFunc("GET /api/activity", s.activity)
+	mux.HandleFunc("GET /api/diagnostics", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{"version": s.Version, "startedAt": s.started, "logs": logx.Recent()})
+	})
 	mux.HandleFunc("GET /api/alerts", s.alerts)
 	mux.HandleFunc("POST /api/alerts/{id}/trust", s.trustAlert)
 	mux.HandleFunc("POST /api/ingest", s.ingest)
@@ -662,7 +665,7 @@ func fail(w http.ResponseWriter, err error) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	log.Printf("web: %v", err)
+	logx.L("web").Error("request failed", "err", err)
 	http.Error(w, "internal error", http.StatusInternalServerError)
 }
 

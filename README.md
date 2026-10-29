@@ -233,6 +233,8 @@ the UI shows them as locked.
 | `LANHOUND_RETENTION_DAYS` | `90` | History retention |
 | `LANHOUND_DHCP_PROBE` | `30m` | DHCP server probe interval, or `off` |
 | `LANHOUND_MQTT_URL` | — | Home Assistant MQTT broker (overrides the UI) |
+| `LANHOUND_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error` |
+| `LANHOUND_LOG_FORMAT` | `text` | `text` or `json` (for log collectors) |
 | `LANHOUND_PASSWORD` | — | Protect the UI with HTTP basic auth (any username) |
 | `LANHOUND_LANG` | `en` | Alert language: `en` or `zh` |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | — | Telegram alerts |

@@ -8,6 +8,7 @@ import Icon from './Icon.vue'
 import RoutersEditor from './RoutersEditor.vue'
 import HassEditor from './HassEditor.vue'
 import ProbesEditor from './ProbesEditor.vue'
+import DiagnosticsPanel from './DiagnosticsPanel.vue'
 
 const emit = defineEmits(['close'])
 const form = ref(null)
@@ -62,6 +63,7 @@ const test = () => act(() => api.testSettings(form.value), t('testOk'))
         <button :class="{ active: tab === 'notify' }" role="tab" @click="tab = 'notify'"><Icon name="bell" :size="14" />{{ t('notifications') }}</button>
         <button :class="{ active: tab === 'routers' }" role="tab" @click="tab = 'routers'"><Icon name="globe" :size="14" />{{ t('discovery') }}</button>
         <button :class="{ active: tab === 'hass' }" role="tab" @click="tab = 'hass'"><Icon name="settings" :size="14" />Home Assistant</button>
+        <button :class="{ active: tab === 'diag' }" role="tab" @click="tab = 'diag'"><Icon name="alert" :size="14" />{{ t('diagnostics') }}</button>
       </div>
       <span class="grow"></span>
       <button class="btn icon" :title="t('close')" @click="emit('close')"><Icon name="x" /></button>
@@ -69,6 +71,7 @@ const test = () => act(() => api.testSettings(form.value), t('testOk'))
 
     <div v-if="tab === 'routers'" class="body"><RoutersEditor /><ProbesEditor /></div>
     <div v-else-if="tab === 'hass'" class="body"><HassEditor /></div>
+    <div v-else-if="tab === 'diag'" class="body"><DiagnosticsPanel /></div>
     <form v-else-if="form" class="body" @submit.prevent="save">
       <div class="checks">
         <label class="check">
@@ -172,6 +175,7 @@ header {
 .tabs {
   display: inline-flex;
   gap: 4px;
+  flex-wrap: wrap;
 }
 .tabs button {
   display: inline-flex;

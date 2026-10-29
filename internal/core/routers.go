@@ -6,11 +6,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/playwjj/lanhound/internal/logx"
 	"github.com/playwjj/lanhound/internal/router"
 	"github.com/playwjj/lanhound/internal/store"
 )
@@ -35,6 +36,8 @@ type Routers struct {
 	registry *Registry
 	hub      *Hub
 	newSrc   func(router.Config) (router.Source, error)
+
+	failures logx.Failures
 
 	mu      sync.Mutex
 	configs []router.Config
@@ -103,7 +106,7 @@ func (r *Routers) poll(ctx context.Context, c router.Config) {
 	entries, err := src.Fetch(fctx)
 	cancel()
 	if err != nil {
-		log.Printf("router %s: %v", c.Label, err)
+		r.failures.Fail(lgRouter(), c.ID, "cannot read router", err, "router", c.Label)
 		r.mu.Lock()
 		r.setStatus(c.ID, func(s *RouterStatus) { s.LastPoll, s.LastError = time.Now(), err.Error() })
 		r.mu.Unlock()
@@ -113,10 +116,12 @@ func (r *Routers) poll(ctx context.Context, c router.Config) {
 	// LanHound's own first sweep.
 	syncedKey := "router.synced." + c.ID
 	synced, _ := r.store.Setting(syncedKey)
+	r.failures.OK(lgRouter(), c.ID, "router readable again", "router", c.Label)
+	lgRouter().Debug("router polled", "router", c.Label, "devices", len(entries))
 	r.registry.ObserveRouter(c.Label, entries, synced == "")
 	if synced == "" {
 		_ = r.store.SetSetting(syncedKey, "1")
-		log.Printf("router %s: first sync, %d device(s) recorded", c.Label, len(entries))
+		lgRouter().Info("router first sync", "router", c.Label, "devices", len(entries))
 	}
 	r.mu.Lock()
 	r.setStatus(c.ID, func(s *RouterStatus) { s.LastPoll, s.LastError, s.Devices = time.Now(), "", len(entries) })
@@ -270,3 +275,5 @@ func (r *Routers) Test(ctx context.Context, c router.Config) TestResult {
 	}
 	return res
 }
+
+func lgRouter() *slog.Logger { return logx.L("router") }

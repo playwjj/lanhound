@@ -13,13 +13,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/playwjj/lanhound/internal/core"
+	"github.com/playwjj/lanhound/internal/logx"
 	"github.com/playwjj/lanhound/internal/netutil"
 	"github.com/playwjj/lanhound/internal/passive"
 	"github.com/playwjj/lanhound/internal/scanner"
@@ -38,6 +39,8 @@ type Agent struct {
 	Status  func() []scanner.Status // the local engine's interfaces
 
 	client *http.Client
+
+	failures logx.Failures
 
 	mu      sync.Mutex
 	pending []core.WireSighting
@@ -66,7 +69,6 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 	t := time.NewTicker(uploadEvery)
 	defer t.Stop()
-	failing := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -77,12 +79,10 @@ func (a *Agent) Run(ctx context.Context) error {
 		switch {
 		case errors.Is(err, ErrUnauthorized):
 			return err
-		case err != nil && !failing:
-			log.Printf("agent: upload failed, buffering: %v", err)
-			failing = true
-		case err == nil && failing:
-			log.Printf("agent: connected to %s again", a.Server)
-			failing = false
+		case err != nil:
+			a.failures.Fail(lg(), "upload", "upload failed, buffering", err, "server", a.Server)
+		default:
+			a.failures.OK(lg(), "upload", "connected to central again", "server", a.Server)
 		}
 	}
 }
@@ -96,7 +96,7 @@ func (a *Agent) flush(ctx context.Context) error {
 	a.dropped = 0
 	a.mu.Unlock()
 	if dropped > 0 {
-		log.Printf("agent: buffer full, dropped %d old sightings", dropped)
+		lg().Warn("buffer full, dropped old sightings", "dropped", dropped)
 	}
 
 	up := core.Upload{Version: a.Version, Sightings: batch, Gateways: map[string][]string{}}
@@ -147,3 +147,5 @@ func (a *Agent) post(ctx context.Context, up core.Upload) error {
 	}
 	return nil
 }
+
+func lg() *slog.Logger { return logx.L("agent") }
