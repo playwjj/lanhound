@@ -47,12 +47,15 @@ func Targets() (targets []Target, skipped []string) {
 			if ip4 == nil || !ip4.IsPrivate() {
 				continue
 			}
-			hosts, ok := hostList(ipnet, ip4)
+			// Addrs reports the interface's own address with the mask;
+			// the network itself starts at the masked address.
+			network := &net.IPNet{IP: ip4.Mask(ipnet.Mask), Mask: ipnet.Mask}
+			hosts, ok := hostList(network, ip4)
 			if !ok {
 				skipped = append(skipped, iface.Name+": network larger than /16, skipped")
 				continue
 			}
-			targets = append(targets, Target{Iface: iface, IP: ip4, Network: ipnet, Hosts: hosts})
+			targets = append(targets, Target{Iface: iface, IP: ip4, Network: network, Hosts: hosts})
 		}
 	}
 	return targets, skipped
@@ -69,7 +72,7 @@ func hostList(ipnet *net.IPNet, self net.IP) (hosts []net.IP, ok bool) {
 	if hostBits > 16 {
 		return nil, false
 	}
-	base := binary.BigEndian.Uint32(ipnet.IP.To4())
+	base := binary.BigEndian.Uint32(ipnet.IP.To4().Mask(ipnet.Mask))
 	total := uint32(1) << hostBits
 	for i := uint32(0); i < total; i++ {
 		if hostBits >= 2 && (i == 0 || i == total-1) {
