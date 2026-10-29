@@ -31,3 +31,14 @@ func TestHostListTooLarge(t *testing.T) {
 		t.Fatal("a /15 must be refused")
 	}
 }
+
+func TestIsVirtual(t *testing.T) {
+	for name, want := range map[string]bool{
+		"docker0": true, "br-f6ed7b574ccd": true, "veth3a1b2c": true, "virbr0": true, "lxdbr0": true, "cni0": true,
+		"eth0": false, "enxa0cec8d68b90": false, "wlan0": false, "br0": false, "br-lan": false, "enp3s0": false,
+	} {
+		if got := IsVirtual(name); got != want {
+			t.Errorf("IsVirtual(%q) = %v, want %v", name, got, want)
+		}
+	}
+}

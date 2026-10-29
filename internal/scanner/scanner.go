@@ -140,7 +140,7 @@ func (e *Engine) Run(ctx context.Context) {
 // refresh starts workers for new targets and stops vanished ones. It
 // returns the workers it started.
 func (e *Engine) refresh(ctx context.Context) []*worker {
-	targets, skipped := targetsFunc()
+	targets, skipped := targetsFunc(e.cfg.Only)
 	seen := map[string]bool{}
 	var started []*worker
 	changed := false

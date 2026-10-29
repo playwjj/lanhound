@@ -73,7 +73,7 @@ func TestEngineSweepAndFirstRound(t *testing.T) {
 		"10.9.0.5": {0x24, 0x0a, 0xc4, 0, 0, 5},
 	})
 	openLinkFunc = func(net.Interface) (link, error) { return lan, nil }
-	targetsFunc = func() ([]netutil.Target, []string) { return []netutil.Target{testTarget()}, nil }
+	targetsFunc = func([]string) ([]netutil.Target, []string) { return []netutil.Target{testTarget()}, nil }
 	defer func() { openLinkFunc, targetsFunc = openLink, netutil.Targets }()
 
 	var mu sync.Mutex

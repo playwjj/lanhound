@@ -222,7 +222,11 @@ func scan(args []string) {
 	asJSON := fs.Bool("json", false, "print results as JSON")
 	_ = fs.Parse(args)
 
-	targets, skipped := netutil.Targets()
+	var include []string
+	if *ifaceName != "" {
+		include = []string{*ifaceName}
+	}
+	targets, skipped := netutil.Targets(include)
 	for _, s := range skipped {
 		fmt.Fprintln(os.Stderr, "note:", s)
 	}

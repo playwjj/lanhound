@@ -6,6 +6,7 @@ package netutil
 import (
 	"encoding/binary"
 	"net"
+	"regexp"
 )
 
 // MaxHosts caps the scan size per interface. Larger networks are skipped
@@ -20,9 +21,20 @@ type Target struct {
 	Hosts   []net.IP   // every usable host address except our own
 }
 
-// Targets enumerates scannable interfaces. skipped collects human-readable
+// virtualIface matches bridges and links that container and VM runtimes
+// create on the host (docker0, Docker's br-<12 hex>, veth pairs,
+// libvirt, LXD, Kubernetes CNIs). They are private subnets too, but not
+// the home LAN: sweeping them finds containers and wastes a /16 of ARP.
+// User bridges such as br0 or OpenWrt's br-lan do not match.
+var virtualIface = regexp.MustCompile(`^(docker\d+|br-[0-9a-f]{12}|veth.*|virbr\d+|lxdbr\d+|lxcbr\d+|cni\d+|flannel\..*|cali.*|vxlan\..*|kube-.*|podman\d+)$`)
+
+// IsVirtual reports whether name looks like a container/VM interface.
+func IsVirtual(name string) bool { return virtualIface.MatchString(name) }
+
+// Targets enumerates scannable interfaces. Container/VM interfaces are
+// skipped unless named in include. skipped collects human-readable
 // reasons for interfaces that were considered but rejected.
-func Targets() (targets []Target, skipped []string) {
+func Targets(include []string) (targets []Target, skipped []string) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
 		return nil, []string{err.Error()}
@@ -32,6 +44,9 @@ func Targets() (targets []Target, skipped []string) {
 			continue
 		}
 		if len(iface.HardwareAddr) != 6 {
+			continue
+		}
+		if IsVirtual(iface.Name) && !contains(include, iface.Name) {
 			continue
 		}
 		addrs, err := iface.Addrs()
@@ -87,4 +102,13 @@ func hostList(ipnet *net.IPNet, self net.IP) (hosts []net.IP, ok bool) {
 		hosts = append(hosts, ip)
 	}
 	return hosts, true
+}
+
+func contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
