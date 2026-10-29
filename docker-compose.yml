@@ -16,6 +16,7 @@ services:
       # TELEGRAM_CHAT_ID: "123456789"
       # TELEGRAM_API_URL: "https://your-bot-api-proxy.example"
       # LANHOUND_WEBHOOK_URL: "https://example.com/hook"
+      # LANHOUND_MQTT_URL: "mqtt://user:pass@192.168.1.10:1883"  # Home Assistant
       # LANHOUND_LANG: zh              # alert language: en | zh
       # LANHOUND_PASSWORD: "change-me" # protect the web UI (basic auth)
       # LANHOUND_LISTEN: ":8686"

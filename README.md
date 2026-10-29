@@ -146,6 +146,22 @@ only the router knows are listed in their own section. The first sync of
 a source is silent, like the first sweep. Passwords are stored in the
 local database.
 
+## Home Assistant
+
+Under **Settings → Home Assistant**, point LanHound at the MQTT broker
+your Home Assistant uses (or set `LANHOUND_MQTT_URL=mqtt://user:pass@host:1883`).
+Through MQTT discovery it creates:
+
+- a **device tracker** (home / not_home) per device, keyed by LanHound's
+  device ID, so a phone whose random MACs you merged stays one entity.
+  Known devices only by default; switch to all devices if you like. MAC
+  connections let HA link them to devices from other integrations.
+- **sensors** for devices online and unreviewed devices.
+- an **event** entity (`event.lanhound_alert`) that fires on every
+  LanHound alert (`new_device`, `arp_conflict`, `rogue_dhcp`,
+  `device_offline`, …) with the rendered message and the devices
+  involved, ready for automations.
+
 ## Configuration
 
 None required. For the few who want to override something, everything is
@@ -161,6 +177,7 @@ the UI shows them as locked.
 | `LANHOUND_SCAN_RATE` | `300` | Max ARP requests per second per interface |
 | `LANHOUND_RETENTION_DAYS` | `90` | History retention |
 | `LANHOUND_DHCP_PROBE` | `30m` | DHCP server probe interval, or `off` |
+| `LANHOUND_MQTT_URL` | — | Home Assistant MQTT broker (overrides the UI) |
 | `LANHOUND_PASSWORD` | — | Protect the UI with HTTP basic auth (any username) |
 | `LANHOUND_LANG` | `en` | Alert language: `en` or `zh` |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | — | Telegram alerts |

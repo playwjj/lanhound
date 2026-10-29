@@ -84,6 +84,14 @@ ARP 只能看到 LanHound 所在的广播域。如果想把路由器后面的设
 
 本网段设备的在线状态仍以 ARP 为准，只从路由器拿名字，因为路由器表里常有过期条目。只有路由器知道的设备单独分组显示。每个数据源第一次同步不报警，和首轮扫描一样。密码保存在本机数据库里。
 
+## Home Assistant
+
+在**设置 → Home Assistant**里填上 Home Assistant 所用的 MQTT 服务器（或设置 `LANHOUND_MQTT_URL=mqtt://用户:密码@地址:1883`）。LanHound 通过 MQTT 自动发现创建：
+
+- 每台设备一个**设备追踪器**（在家 / 离家），以 LanHound 的设备 ID 为准，所以合并过随机 MAC 的手机始终是同一个实体。默认只同步已认识的设备，可改成全部。带上 MAC 关联后，HA 能把它和其他集成里的同一设备对应起来。
+- **传感器**：在线设备数、待确认设备数。
+- 一个**事件**实体（`event.lanhound_alert`）：每条 LanHound 告警（`new_device`、`arp_conflict`、`rogue_dhcp`、`device_offline` 等）都会触发它，并附带渲染好的消息和相关设备，可以直接用来写自动化。
+
 ## 配置项
 
 什么都不用配。少数想改默认值的用户可以用环境变量；设置了环境变量的项优先于 Web 界面，界面上会显示为锁定。
@@ -97,6 +105,7 @@ ARP 只能看到 LanHound 所在的广播域。如果想把路由器后面的设
 | `LANHOUND_SCAN_RATE` | `300` | 每个网卡每秒最多发多少个 ARP 请求 |
 | `LANHOUND_RETENTION_DAYS` | `90` | 历史保留天数 |
 | `LANHOUND_DHCP_PROBE` | `30m` | DHCP 服务器探测间隔，`off` 为关闭 |
+| `LANHOUND_MQTT_URL` | — | Home Assistant 的 MQTT 服务器（优先于界面设置） |
 | `LANHOUND_PASSWORD` | — | 给界面加 HTTP Basic 密码（用户名随意） |
 | `LANHOUND_LANG` | `en` | 报警语言：`en` 或 `zh` |
 | `TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID` | — | Telegram 报警 |

@@ -30,6 +30,7 @@ import (
 
 	"github.com/playwjj/lanhound/internal/core"
 	"github.com/playwjj/lanhound/internal/demo"
+	"github.com/playwjj/lanhound/internal/hass"
 	"github.com/playwjj/lanhound/internal/netutil"
 	"github.com/playwjj/lanhound/internal/notify"
 	"github.com/playwjj/lanhound/internal/oui"
@@ -166,7 +167,11 @@ func serve(args []string) {
 	if err != nil {
 		log.Fatalf("load router sources: %v", err)
 	}
-	srv := &web.Server{Registry: reg, Settings: settings, Hub: hub, Security: guard, Routers: routers, Version: version, Interval: *interval, Password: os.Getenv("LANHOUND_PASSWORD")}
+	bridge, err := hass.New(st, reg, hub, func() string { return settings.Get().Language }, version, os.Getenv("LANHOUND_MQTT_URL"))
+	if err != nil {
+		log.Fatalf("load Home Assistant settings: %v", err)
+	}
+	srv := &web.Server{Registry: reg, Settings: settings, Hub: hub, Security: guard, Routers: routers, HASS: bridge, Version: version, Interval: *interval, Password: os.Getenv("LANHOUND_PASSWORD")}
 	publishStatus := func() { hub.Publish("status", srv.Status()) }
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -208,6 +213,7 @@ func serve(args []string) {
 		}
 	}()
 	go reg.Run(ctx)
+	go bridge.Run(ctx)
 
 	httpSrv := &http.Server{Addr: *listen, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {

@@ -6,6 +6,7 @@ import { t } from '../i18n'
 import { ago, isZero } from '../format'
 import Icon from './Icon.vue'
 import RoutersEditor from './RoutersEditor.vue'
+import HassEditor from './HassEditor.vue'
 
 const emit = defineEmits(['close'])
 const form = ref(null)
@@ -59,12 +60,14 @@ const test = () => act(() => api.testSettings(form.value), t('testOk'))
       <div class="tabs" role="tablist">
         <button :class="{ active: tab === 'notify' }" role="tab" @click="tab = 'notify'"><Icon name="bell" :size="14" />{{ t('notifications') }}</button>
         <button :class="{ active: tab === 'routers' }" role="tab" @click="tab = 'routers'"><Icon name="globe" :size="14" />{{ t('routers') }}</button>
+        <button :class="{ active: tab === 'hass' }" role="tab" @click="tab = 'hass'"><Icon name="settings" :size="14" />Home Assistant</button>
       </div>
       <span class="grow"></span>
       <button class="btn icon" :title="t('close')" @click="emit('close')"><Icon name="x" /></button>
     </header>
 
     <div v-if="tab === 'routers'" class="body"><RoutersEditor /></div>
+    <div v-else-if="tab === 'hass'" class="body"><HassEditor /></div>
     <form v-else-if="form" class="body" @submit.prevent="save">
       <div class="checks">
         <label class="check">

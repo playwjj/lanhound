@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/playwjj/lanhound/internal/core"
+	"github.com/playwjj/lanhound/internal/hass"
 	"github.com/playwjj/lanhound/internal/notify"
 	"github.com/playwjj/lanhound/internal/router"
 	"github.com/playwjj/lanhound/internal/scanner"
@@ -38,6 +39,14 @@ type Security interface {
 	TrustDHCP(iface, key string) error
 }
 
+// HASS is the Home Assistant bridge as the web layer sees it.
+type HASS interface {
+	Config() hass.Config
+	Status() hass.Status
+	Put(hass.Config) (hass.Config, error)
+	Test(hass.Config) error
+}
+
 // Server is the HTTP front of LanHound.
 type Server struct {
 	Registry *core.Registry
@@ -46,6 +55,7 @@ type Server struct {
 	Scanner  Scanner
 	Security Security
 	Routers  *core.Routers // nil disables router sources
+	HASS     HASS          // nil disables the Home Assistant bridge
 	Version  string
 	Interval time.Duration
 	// Password enables HTTP basic auth (any username) when non-empty.
@@ -66,6 +76,7 @@ type Status struct {
 	Alerts       core.AlertStatus    `json:"alerts"`
 	Gateways     map[string][]string `json:"gateways"` // interface → default gateway(s)
 	Routers      []core.RouterStatus `json:"routers"`
+	HASS         *hass.Status        `json:"hass,omitempty"`
 }
 
 // Status builds the current status payload.
@@ -82,7 +93,13 @@ func (s *Server) Status() Status {
 	if s.Routers != nil {
 		routers = s.Routers.Status()
 	}
+	var hs *hass.Status
+	if s.HASS != nil {
+		st := s.HASS.Status()
+		hs = &st
+	}
 	return Status{
+		HASS:         hs,
 		Routers:      routers,
 		Gateways:     gateways,
 		Version:      s.Version,
@@ -122,6 +139,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/activity", s.activity)
 	mux.HandleFunc("GET /api/alerts", s.alerts)
 	mux.HandleFunc("POST /api/alerts/{id}/trust", s.trustAlert)
+	mux.HandleFunc("GET /api/hass", s.getHASS)
+	mux.HandleFunc("PUT /api/hass", s.putHASS)
+	mux.HandleFunc("POST /api/hass/test", s.testHASS)
 	mux.HandleFunc("GET /api/routers", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, s.routerStatus()) })
 	mux.HandleFunc("PUT /api/routers", s.putRouters)
 	mux.HandleFunc("POST /api/routers/test", s.testRouter)
@@ -325,6 +345,47 @@ func (s *Server) trustAlert(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.Security.TrustDHCP(m.Interface, m.Key); err != nil {
 		fail(w, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func (s *Server) getHASS(w http.ResponseWriter, r *http.Request) {
+	if s.HASS == nil {
+		http.Error(w, "Home Assistant bridge disabled", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, map[string]any{"config": s.HASS.Config(), "status": s.HASS.Status()})
+}
+
+func (s *Server) putHASS(w http.ResponseWriter, r *http.Request) {
+	if s.HASS == nil {
+		http.Error(w, "Home Assistant bridge disabled", http.StatusNotFound)
+		return
+	}
+	var c hass.Config
+	if !readJSON(w, r, &c) {
+		return
+	}
+	cfg, err := s.HASS.Put(c)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, map[string]any{"config": cfg, "status": s.HASS.Status()})
+}
+
+func (s *Server) testHASS(w http.ResponseWriter, r *http.Request) {
+	if s.HASS == nil {
+		http.Error(w, "Home Assistant bridge disabled", http.StatusNotFound)
+		return
+	}
+	var c hass.Config
+	if !readJSON(w, r, &c) {
+		return
+	}
+	if err := s.HASS.Test(c); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 	writeJSON(w, map[string]bool{"ok": true})
