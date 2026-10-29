@@ -1,6 +1,6 @@
 <script setup>
 // A handful of stroke icons, inlined so the UI has no external assets.
-defineProps({ name: String, size: { type: Number, default: 16 } })
+defineProps({ name: { type: String, required: true }, size: { type: Number, default: 16 } })
 const paths = {
   refresh: 'M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7',
   settings:

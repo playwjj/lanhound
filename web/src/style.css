@@ -199,3 +199,12 @@ input:disabled {
 .spin {
   animation: spin 1s linear infinite;
 }
+
+/* Section headings inside panels. */
+.section-title {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+  margin: 20px 0 8px;
+}

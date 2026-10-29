@@ -48,7 +48,8 @@ async function save() {
   busy.value = true
   msg.value = err.value = ''
   try {
-    const cfgs = list.value.map(({ lastPoll, lastError, devices, ...c }) => c)
+    // Send only configuration, not the status fields the list carries.
+    const cfgs = list.value.map(({ id, kind, label, url, username, password, enabled, insecure }) => ({ id, kind, label, url, username, password, enabled, insecure }))
     list.value = await api.saveRouters(cfgs)
     msg.value = t('saved')
   } catch (e) {

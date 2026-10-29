@@ -432,14 +432,15 @@ function detect() {
     const saved = localStorage.getItem('lanhound.lang')
     if (saved && messages[saved]) return saved
   } catch {}
-  return (navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en'
+  const lang = typeof navigator === 'undefined' ? '' : navigator.language || ''
+  return lang.toLowerCase().startsWith('zh') ? 'zh' : 'en'
 }
 
 export const locale = ref(detect())
 
 export function setLocale(l) {
   locale.value = l
-  document.documentElement.lang = l === 'zh' ? 'zh-CN' : 'en'
+  if (typeof document !== 'undefined') document.documentElement.lang = l === 'zh' ? 'zh-CN' : 'en'
   try {
     localStorage.setItem('lanhound.lang', l)
   } catch {}

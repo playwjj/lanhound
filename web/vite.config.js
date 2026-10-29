@@ -9,9 +9,9 @@ function noDuplicateI18nKeys() {
     name: 'no-duplicate-i18n-keys',
     buildStart() {
       const src = readFileSync(new URL('./src/i18n.js', import.meta.url), 'utf8')
-      for (const block of src.split(/\n  (?=\w+: \{)/).slice(1)) {
+      for (const block of src.split(/\n {2}(?=\w+: \{)/).slice(1)) {
         const seen = new Set()
-        for (const [, key] of block.matchAll(/\n    (\w+):/g)) {
+        for (const [, key] of block.matchAll(/\n {4}(\w+):/g)) {
           if (seen.has(key)) this.error(`i18n: key "${key}" defined twice in locale ${block.slice(0, 2)}`)
           seen.add(key)
         }

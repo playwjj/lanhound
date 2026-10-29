@@ -20,9 +20,9 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: Front end builds and matches the committed dist
+      - name: Front end lints, tests, builds and matches the committed dist
         run: |
-          cd web && npm ci && npm run build && cd ..
+          cd web && npm ci && npm run lint && npm test && npm run build && cd ..
           git diff --exit-code -- internal/web/dist || (echo "::error::internal/web/dist is stale — run 'make web' and commit" && exit 1)
       - run: go vet ./...
       - run: go test -race ./...

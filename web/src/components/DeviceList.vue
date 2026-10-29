@@ -6,7 +6,7 @@ import { ago, dateTime, displayName } from '../format'
 import Icon from './Icon.vue'
 import InlineName from './InlineName.vue'
 
-defineProps({ devices: Array })
+defineProps({ devices: { type: Array, required: true } })
 const emit = defineEmits(['select'])
 
 async function toggleKnown(d) {
@@ -28,7 +28,7 @@ function subtitle(d) {
 </script>
 
 <template>
-  <div class="list" v-if="devices.length">
+  <div v-if="devices.length" class="list">
     <div class="row head">
       <span></span>
       <span>{{ t('name') }}</span>
@@ -63,7 +63,7 @@ function subtitle(d) {
             <Icon name="merge" :size="11" />{{ t('sameNameBadge') }}
           </span>
         </span>
-        <span class="sub muted" v-if="subtitle(d)">{{ subtitle(d) }}</span>
+        <span v-if="subtitle(d)" class="sub muted">{{ subtitle(d) }}</span>
       </span>
       <span class="c-ip mono">{{ d.ip || '—' }}</span>
       <span class="c-mac">

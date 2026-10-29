@@ -194,7 +194,7 @@ async function markAllKnown() {
     <p v-if="!devices.length" class="empty muted">{{ t('noDevices') }}</p>
     <p v-else-if="!filtered.length" class="empty muted">{{ t('noMatch') }}</p>
 
-    <footer class="foot muted" v-if="state.status">
+    <footer v-if="state.status" class="foot muted">
       LanHound {{ state.status.version }}
       <template v-if="state.status.skipped.length"> · {{ t('skipped') }}: {{ state.status.skipped.join('; ') }}</template>
     </footer>

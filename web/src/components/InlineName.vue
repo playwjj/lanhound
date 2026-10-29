@@ -6,7 +6,7 @@ import { t } from '../i18n'
 import { displayName } from '../format'
 import Icon from './Icon.vue'
 
-const props = defineProps({ device: Object })
+const props = defineProps({ device: { type: Object, required: true } })
 const editing = ref(false)
 const value = ref('')
 const input = ref(null)

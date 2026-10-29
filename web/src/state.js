@@ -42,51 +42,53 @@ export function connect() {
   es = new EventSource('/api/events')
   es.onopen = () => (state.connected = true)
   es.onerror = () => (state.connected = false)
-  es.onmessage = (e) => {
-    const { type, data } = JSON.parse(e.data)
-    switch (type) {
-      case 'snapshot':
-        state.devices = Object.fromEntries(data.devices.map((d) => [d.id, d]))
-        state.status = data.status
-        state.connected = true
-        loadAlerts()
-        break
-      case 'alert':
-        if (!state.alerts.some((a) => a.id === data.id)) state.alerts.unshift(data)
-        if (state.alerts.length > 200) state.alerts.length = 200
-        break
-      case 'device':
-        state.devices[data.id] = data
-        break
-      case 'seen': // batched last-seen updates: { id: time }
-        for (const [id, at] of Object.entries(data)) {
-          if (state.devices[id]) state.devices[id].lastSeen = at
-        }
-        break
-      case 'remove':
-        delete state.devices[data.id]
-        break
-      case 'status':
-        state.status = data
-        break
-      case 'hass':
-        if (state.status) state.status.hass = data
-        break
-      case 'routers':
-        if (state.status) state.status.routers = data
-        break
-      case 'alerts':
-        if (state.status) state.status.alerts = data
-        break
-      case 'baseline':
-        if (state.status) state.status.baseline = data
-        break
-    }
-  }
+  es.onmessage = (e) => handleMessage(JSON.parse(e.data))
 }
 
 // Apply a device returned by a REST call right away instead of waiting
 // for its echo on the event stream.
 export function upsert(d) {
   state.devices[d.id] = d
+}
+
+// handleMessage applies one event-stream message to the state.
+export function handleMessage({ type, data }) {
+  switch (type) {
+    case 'snapshot':
+      state.devices = Object.fromEntries(data.devices.map((d) => [d.id, d]))
+      state.status = data.status
+      state.connected = true
+      loadAlerts()
+      break
+    case 'alert':
+      if (!state.alerts.some((a) => a.id === data.id)) state.alerts.unshift(data)
+      if (state.alerts.length > 200) state.alerts.length = 200
+      break
+    case 'device':
+      state.devices[data.id] = data
+      break
+    case 'seen': // batched last-seen updates: { id: time }
+      for (const [id, at] of Object.entries(data)) {
+        if (state.devices[id]) state.devices[id].lastSeen = at
+      }
+      break
+    case 'remove':
+      delete state.devices[data.id]
+      break
+    case 'status':
+      state.status = data
+      break
+    case 'hass':
+      if (state.status) state.status.hass = data
+      break
+    case 'routers':
+      if (state.status) state.status.routers = data
+      break
+    case 'alerts':
+      if (state.status) state.status.alerts = data
+      break
+    case 'baseline':
+      if (state.status) state.status.baseline = data
+      break
+  }
 }

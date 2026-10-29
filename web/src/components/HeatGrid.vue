@@ -5,10 +5,10 @@ import { computed, ref } from 'vue'
 // flips the anchor: dark → light). Zero is a neutral empty cell, so
 // "nothing" never reads as "a little".
 const props = defineProps({
-  rows: Array, // [{ label, cells: [{ value, tip }] }]
-  max: Number, // value that maps to the darkest step (≥ 1)
-  less: String,
-  more: String,
+  rows: { type: Array, required: true }, // [{ label, cells: [{ value, tip }] }]
+  max: { type: Number, default: 1 }, // value that maps to the darkest step (≥ 1)
+  less: { type: String, default: '' },
+  more: { type: String, default: '' },
 })
 
 const STEPS = 5

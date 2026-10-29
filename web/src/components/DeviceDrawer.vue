@@ -6,12 +6,12 @@ import { t, locale } from '../i18n'
 import { ago, dateTime, displayName } from '../format'
 import Icon from './Icon.vue'
 import InlineName from './InlineName.vue'
-import HeatGrid from './HeatGrid.vue'
+import DeviceHistory from './DeviceHistory.vue'
+import DeviceServices from './DeviceServices.vue'
 
-const props = defineProps({ device: Object })
+const props = defineProps({ device: { type: Object, required: true } })
 const emit = defineEmits(['close', 'select'])
 
-const history = ref({ sessions: [], events: [] })
 const note = ref('')
 const noteDirty = computed(() => note.value.trim() !== (props.device.note || ''))
 const mergeTarget = ref('')
@@ -20,14 +20,6 @@ const confirmForget = ref(false)
 const busy = ref(false)
 const error = ref('')
 
-async function load() {
-  try {
-    history.value = await api.history(props.device.id, 28)
-  } catch (e) {
-    error.value = e.message
-  }
-}
-
 watch(
   () => props.device.id,
   () => {
@@ -35,12 +27,9 @@ watch(
     showMerge.value = confirmForget.value = false
     mergeTarget.value = ''
     error.value = ''
-    load()
   },
   { immediate: true },
 )
-// Refresh the timeline when the device comes or goes.
-watch(() => props.device.online, load)
 
 function onKey(e) {
   if (e.key === 'Escape') emit('close')
@@ -69,17 +58,6 @@ async function run(fn) {
 }
 
 const saveNote = () => run(async () => upsert(await api.patch(props.device.id, { note: note.value })))
-const probing = ref(false)
-async function probeNow() {
-  probing.value = true
-  try {
-    await api.probe(props.device.id)
-  } catch (e) {
-    error.value = e.message
-  }
-  // The result arrives over the live stream; stop the spinner after a bit.
-  setTimeout(() => (probing.value = false), 6000)
-}
 const toggleCritical = () => run(async () => upsert(await api.patch(props.device.id, { critical: !props.device.critical })))
 const toggleKnown = () => run(async () => upsert(await api.patch(props.device.id, { known: !props.device.known })))
 const merge = (into) =>
@@ -94,76 +72,6 @@ const forget = () =>
     emit('close')
   })
 
-// Weekday × hour: share of each hour-slot the device was online over the
-// last 28 days (only counting time since it was first seen).
-const usual = computed(() => {
-  const end = now.value
-  const begin = Math.max(end - 28 * 864e5, new Date(props.device.firstSeen).getTime())
-  const online = Array.from({ length: 7 }, () => new Array(24).fill(0))
-  const total = Array.from({ length: 7 }, () => new Array(24).fill(0))
-  const slot = (ms) => {
-    const d = new Date(ms)
-    return [(d.getDay() + 6) % 7, d.getHours()] // Monday first
-  }
-  // Exposure: how much of each slot lies inside the window.
-  for (let t0 = Math.floor(begin / 3600e3) * 3600e3; t0 < end; t0 += 3600e3) {
-    const span = Math.min(t0 + 3600e3, end) - Math.max(t0, begin)
-    if (span > 0) {
-      const [w, h] = slot(t0)
-      total[w][h] += span
-    }
-  }
-  for (const s of history.value.sessions) {
-    let a = Math.max(new Date(s.start).getTime(), begin)
-    const b = s.end.startsWith('0001') ? end : Math.min(new Date(s.end).getTime(), end)
-    while (a < b) {
-      const next = Math.min(Math.floor(a / 3600e3) * 3600e3 + 3600e3, b)
-      const [w, h] = slot(a)
-      online[w][h] += next - a
-      a = next
-    }
-  }
-  const loc = locale.value === 'zh' ? 'zh-CN' : undefined
-  const fmt = new Intl.DateTimeFormat(loc, { weekday: 'short' })
-  const monday = new Date(2024, 0, 1) // a Monday
-  return online.map((hours, w) => {
-    const day = fmt.format(new Date(monday.getTime() + w * 864e5))
-    return {
-      label: day,
-      cells: hours.map((ms, h) => {
-        if (!total[w][h]) return { value: null, tip: '' }
-        const share = ms / total[w][h]
-        return { value: share, tip: t('usualTip', { day, h: String(h).padStart(2, '0'), p: Math.round(share * 100) }) }
-      }),
-    }
-  })
-})
-
-// Seven day rows, each with the online periods that fall into it.
-const days = computed(() => {
-  const out = []
-  const today = new Date(now.value)
-  today.setHours(0, 0, 0, 0)
-  const fmt = new Intl.DateTimeFormat(locale.value === 'zh' ? 'zh-CN' : undefined, { weekday: 'short', month: 'numeric', day: 'numeric' })
-  for (let i = 6; i >= 0; i--) {
-    const start = new Date(today)
-    start.setDate(today.getDate() - i)
-    const end = new Date(start)
-    end.setDate(start.getDate() + 1)
-    const s0 = start.getTime()
-    const s1 = end.getTime()
-    const segs = []
-    for (const s of history.value.sessions) {
-      const a = new Date(s.start).getTime()
-      const b = s.end.startsWith('0001') ? now.value : new Date(s.end).getTime()
-      const from = Math.max(a, s0)
-      const to = Math.min(b, s1, now.value)
-      if (to > from) segs.push({ left: ((from - s0) / 864e5) * 100, width: Math.max(((to - from) / 864e5) * 100, 0.4) })
-    }
-    out.push({ label: fmt.format(start), segs })
-  }
-  return out
-})
 </script>
 
 <template>
@@ -259,21 +167,7 @@ const days = computed(() => {
         <dd>{{ dateTime(device.lastSeen) }}</dd>
       </dl>
 
-      <h3 class="svc-head">
-        {{ t('services') }}
-        <span v-if="device.servicesAt && !device.servicesAt.startsWith('0001')" class="muted small">{{ t('svcAt', { t: ago(device.servicesAt, now) }) }}</span>
-        <button class="btn small" :disabled="probing" @click="probeNow">{{ probing ? t('svcProbing') : t('svcProbe') }}</button>
-      </h3>
-      <ul v-if="device.services?.length" class="svcs">
-        <li v-for="s in device.services" :key="s.port">
-          <span class="mono port">{{ s.port }}</span>
-          <a v-if="s.url" :href="s.url" target="_blank" rel="noopener noreferrer">{{ s.name }}</a>
-          <span v-else>{{ s.name }}</span>
-          <span v-if="s.risky" class="badge risky" :title="t('svcRiskyTip')">{{ t('svcRisky') }}</span>
-          <span class="muted small detail">{{ s.detail }}</span>
-        </li>
-      </ul>
-      <p v-else class="muted small">{{ device.servicesAt && !device.servicesAt.startsWith('0001') ? t('svcNone') : t('svcNever') }}</p>
+      <DeviceServices :device="device" />
 
       <label class="field">
         <span class="label">{{ t('note') }}</span>
@@ -284,32 +178,7 @@ const days = computed(() => {
         <button class="btn small primary" :disabled="busy" @click="saveNote">{{ t('save') }}</button>
       </div>
 
-      <h3>{{ t('history') }}</h3>
-      <div class="timeline">
-        <div v-for="d in days" :key="d.label" class="day">
-          <span class="day-label muted">{{ d.label }}</span>
-          <span class="bar">
-            <span v-for="(s, i) in d.segs" :key="i" class="seg" :style="{ left: s.left + '%', width: s.width + '%' }"></span>
-          </span>
-        </div>
-        <div class="day axis muted">
-          <span></span>
-          <span class="ticks"><span>0</span><span>6</span><span>12</span><span>18</span><span>24</span></span>
-        </div>
-      </div>
-
-      <h3>{{ t('usualHours') }}</h3>
-      <HeatGrid :rows="usual" :max="1" :less="t('lessOnline')" :more="t('moreOnline')" />
-
-      <h3>{{ t('events') }}</h3>
-      <ul class="events">
-        <li v-for="(e, i) in history.events" :key="i">
-          <span class="ev-kind" :class="e.kind">{{ t('ev_' + e.kind) }}</span>
-          <span class="ev-detail">{{ e.detail }}</span>
-          <span class="muted small ev-time">{{ dateTime(e.at) }}</span>
-        </li>
-        <li v-if="!history.events.length" class="muted">{{ t('noEvents') }}</li>
-      </ul>
+      <DeviceHistory :device="device" />
 
       <div class="danger-zone">
         <template v-if="!showMerge">
@@ -397,42 +266,6 @@ const days = computed(() => {
   gap: 10px;
   margin-bottom: 14px;
 }
-.svc-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.svc-head .btn {
-  margin-left: auto;
-  text-transform: none;
-  letter-spacing: 0;
-}
-.svcs {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 16px;
-  display: grid;
-  gap: 4px;
-}
-.svcs li {
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-  flex-wrap: wrap;
-}
-.svcs .port {
-  min-width: 44px;
-}
-.svcs a {
-  color: var(--accent);
-}
-.svcs .detail {
-  overflow-wrap: anywhere;
-}
-.badge.risky {
-  background: var(--danger-soft);
-  color: var(--danger);
-}
 .crit {
   display: flex;
   gap: 8px;
@@ -470,83 +303,6 @@ textarea {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 8px;
-}
-h3 {
-  font-size: 13px;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-  color: var(--muted);
-  margin: 20px 0 8px;
-}
-.timeline {
-  display: grid;
-  gap: 5px;
-}
-.day {
-  display: grid;
-  grid-template-columns: 92px 1fr;
-  align-items: center;
-  gap: 8px;
-}
-.day-label {
-  font-size: 12px;
-  white-space: nowrap;
-}
-.bar {
-  position: relative;
-  height: 12px;
-  border-radius: 3px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  overflow: hidden;
-}
-.seg {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  background: var(--ok);
-  opacity: 0.85;
-}
-.axis {
-  font-size: 10.5px;
-}
-.ticks {
-  display: flex;
-  justify-content: space-between;
-}
-.events {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: grid;
-  gap: 6px;
-}
-.events li {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 8px;
-  align-items: baseline;
-}
-.ev-kind {
-  font-size: 12px;
-  font-weight: 600;
-}
-.ev-kind.new {
-  color: var(--warn);
-}
-.ev-kind.online {
-  color: var(--ok);
-}
-.ev-kind.offline {
-  color: var(--muted);
-}
-.ev-detail {
-  font-family: var(--mono);
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-.ev-time {
-  white-space: nowrap;
 }
 .danger-zone {
   margin-top: 24px;
