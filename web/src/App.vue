@@ -298,9 +298,11 @@ async function markAllKnown() {
 .conn .dot.on {
   box-shadow: 0 0 0 3px rgb(34 197 94 / 0.25);
 }
-main {
-  padding-top: 16px;
-  padding-bottom: 40px;
+/* main.wrap, not main: .wrap's padding shorthand would otherwise win
+   and glue the content to the header and the page bottom. */
+main.wrap {
+  padding-top: 20px;
+  padding-bottom: 48px;
 }
 .toolbar {
   display: flex;
@@ -387,7 +389,7 @@ main {
 .foot {
   text-align: center;
   font-size: 12px;
-  margin-top: 24px;
+  margin-top: 32px;
 }
 @media (max-width: 720px) {
   .hide-sm,
