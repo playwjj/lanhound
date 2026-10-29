@@ -202,3 +202,46 @@ func TestBuildDHCPDiscover(t *testing.T) {
 		t.Fatal("not a broadcast DHCPDISCOVER")
 	}
 }
+
+func icmp6Frame(srcMAC net.HardwareAddr, src net.IP, typ byte, body []byte) []byte {
+	icmp := append([]byte{typ, 0, 0, 0}, body...)
+	f := make([]byte, 14+40+len(icmp))
+	copy(f[6:12], srcMAC)
+	f[12], f[13] = 0x86, 0xdd
+	f[14] = 0x60
+	binary.BigEndian.PutUint16(f[18:20], uint16(len(icmp)))
+	f[20], f[21] = protoICMPv6, 255
+	copy(f[22:38], src.To16())
+	copy(f[54:], icmp)
+	return f
+}
+
+func TestDecodeIPv6(t *testing.T) {
+	ll := net.ParseIP("fe80::260a:c4ff:fe01:203")
+	got := Decode(icmp6Frame(devMAC, ll, icmp6EchoReply, make([]byte, 12)))
+	if len(got) != 1 || !got[0].IP6.Equal(ll) || got[0].IP != nil || got[0].Source != SrcNDP {
+		t.Fatalf("echo reply %+v", got)
+	}
+	// Duplicate address detection: from ::, the target is the new address.
+	gua := net.ParseIP("240e:3b0:1234::87")
+	ns := append(make([]byte, 4), gua.To16()...)
+	got = Decode(icmp6Frame(devMAC, net.IPv6unspecified, icmp6NeighSol, ns))
+	if len(got) != 1 || !got[0].IP6.Equal(gua) {
+		t.Fatalf("DAD %+v", got)
+	}
+	if got := Decode(icmp6Frame(devMAC, ll, icmp6EchoRequest, make([]byte, 12))); got != nil {
+		t.Fatal("echo requests are ignored")
+	}
+}
+
+func TestBuildEchoAllNodes(t *testing.T) {
+	src := net.ParseIP("fe80::1")
+	f := BuildEchoAllNodes(devMAC, src, 7, 1)
+	if f[0] != 0x33 || f[12] != 0x86 || f[54] != icmp6EchoRequest {
+		t.Fatal("bad frame")
+	}
+	// A correct checksum makes the whole message sum to zero.
+	if icmp6Checksum(src, AllNodes, f[54:]) != 0 {
+		t.Fatal("bad ICMPv6 checksum")
+	}
+}

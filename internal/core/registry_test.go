@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"path/filepath"
 	"sync"
@@ -469,5 +470,30 @@ func TestActivity(t *testing.T) {
 	last := a.Hourly[23] // 10:00–11:00
 	if last != 2 || a.Hourly[18] != 1 || a.Hourly[17] != 0 {
 		t.Fatalf("hourly %v", a.Hourly)
+	}
+}
+
+func TestIPv6Addresses(t *testing.T) {
+	h := newHarness(t, "")
+	ll := net.ParseIP("fe80::260a:c4ff:fe00:3")
+	h.r.Observe(sight("24:0a:c4:00:00:03", "", func(s *passive.Sighting) { s.Source, s.IP6 = passive.SrcNDP, ll }))
+	v := h.r.Devices()[0]
+	if v.IP != "" || len(v.IPv6) != 1 || v.IPv6[0] != ll.String() {
+		t.Fatalf("IPv6-only device %+v", v)
+	}
+	h.r.Observe(sight("24:0a:c4:00:00:03", "192.168.2.87"))
+	for i := 0; i < 8; i++ {
+		ip := net.ParseIP(fmt.Sprintf("240e:3b0::%d", i))
+		h.r.Observe(sight("24:0a:c4:00:00:03", "", func(s *passive.Sighting) { s.Source, s.IP6 = passive.SrcNDP, ip }))
+	}
+	h.r.Observe(sight("24:0a:c4:00:00:03", "", func(s *passive.Sighting) { s.Source, s.IP6 = passive.SrcNDP, net.ParseIP("240e:3b0::7") }))
+	v, _ = h.r.Device(v.ID)
+	if v.IP != "192.168.2.87" || len(v.IPv6) != maxIPv6 || v.IPv6[0] != "240e:3b0::7" {
+		t.Fatalf("ipv6 list %v", v.IPv6)
+	}
+	h.r.Flush()
+	devs, _, _ := h.st.Devices()
+	if len(devs[0].IPv6) != maxIPv6 {
+		t.Fatalf("ipv6 not persisted: %v", devs[0].IPv6)
 	}
 }

@@ -361,6 +361,14 @@ func (w *worker) sweep(ctx context.Context, l link) {
 	w.mu.Unlock()
 	w.update(func(s *Status) { s.Sweeping = true })
 
+	// IPv6: one echo to all-nodes per source address; every IPv6 host
+	// on the link answers, and the listener records the replies.
+	for i, src := range ipv6Sources(w.t.Iface) {
+		if err := l.Write(passive.BuildEchoAllNodes(w.t.Iface.HardwareAddr, src, 0x4c48, uint16(i+1))); err != nil {
+			log.Printf("scanner: IPv6 echo on %s: %v", w.t.Iface.Name, err)
+		}
+	}
+
 	err := sendRequests(ctx, l, w.t, w.cfg.Rate)
 	if err == nil {
 		select {
@@ -436,6 +444,36 @@ func (w *worker) accept(s *passive.Sighting) bool {
 		}
 	}
 	return true
+}
+
+// ipv6Sources returns the interface's link-local address and its first
+// global one: replies come back from the same scope, so asking from both
+// collects devices' link-local and global addresses.
+func ipv6Sources(iface net.Interface) []net.IP {
+	addrs, err := iface.Addrs()
+	if err != nil {
+		return nil
+	}
+	var ll, global net.IP
+	for _, a := range addrs {
+		ipn, ok := a.(*net.IPNet)
+		if !ok || ipn.IP.To4() != nil || ipn.IP.To16() == nil {
+			continue
+		}
+		switch {
+		case ipn.IP.IsLinkLocalUnicast() && ll == nil:
+			ll = ipn.IP
+		case ipn.IP.IsGlobalUnicast() && global == nil:
+			global = ipn.IP
+		}
+	}
+	var out []net.IP
+	for _, ip := range []net.IP{ll, global} {
+		if ip != nil {
+			out = append(out, ip)
+		}
+	}
+	return out
 }
 
 func isZero(b []byte) bool {

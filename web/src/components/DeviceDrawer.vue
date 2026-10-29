@@ -193,6 +193,12 @@ const days = computed(() => {
       <dl class="facts">
         <dt>{{ t('ip') }}</dt>
         <dd class="mono">{{ device.ip || '—' }}</dd>
+        <template v-if="device.ipv6?.length">
+          <dt>IPv6</dt>
+          <dd>
+            <div v-for="a in device.ipv6" :key="a" class="mono">{{ a }}</div>
+          </dd>
+        </template>
         <dt>{{ t('hostname') }}</dt>
         <dd>
           {{ device.hostname || '—' }}

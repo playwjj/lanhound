@@ -26,6 +26,7 @@ const (
 	SrcNBNS     = "nbns"
 	SrcRDNS     = "rdns"   // reverse DNS answer from the LAN's resolver (set by the probe package)
 	SrcRouter   = "router" // a router's lease/neighbour table (set by the router package)
+	SrcNDP      = "ndp"    // IPv6 neighbour discovery / echo reply
 )
 
 // UDP ports the passive listener cares about.
@@ -56,6 +57,9 @@ type Sighting struct {
 	// are the server's and DHCPServerID is its option-54 identifier.
 	DHCPServer   bool
 	DHCPServerID net.IP
+
+	// IP6 is an IPv6 address the device uses (from NDP or an echo reply).
+	IP6 net.IP
 }
 
 // HostnamePriority ranks hostname sources: a name the device chose for
@@ -98,6 +102,8 @@ func Decode(frame []byte) []Sighting {
 		return []Sighting{s}
 	case 0x0800:
 		return decodeIPv4(frame)
+	case 0x86dd:
+		return decodeIPv6(frame)
 	}
 	return nil
 }

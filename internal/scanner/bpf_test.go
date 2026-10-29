@@ -29,8 +29,12 @@ func TestFilter(t *testing.T) {
 	arpFrame, _ := arp.BuildRequest(net.HardwareAddr{1, 2, 3, 4, 5, 6}, net.IPv4(10, 0, 0, 2), net.IPv4(10, 0, 0, 1))
 	tcp := udp(443, 50000, 0)
 	tcp[23] = 6
-	ipv6 := make([]byte, 60)
+	ipv6 := make([]byte, 70)
 	ipv6[12], ipv6[13] = 0x86, 0xdd
+	ipv6[20] = 17 // UDP
+	icmp6 := make([]byte, 70)
+	icmp6[12], icmp6[13] = 0x86, 0xdd
+	icmp6[20] = 58
 
 	cases := []struct {
 		name  string
@@ -47,7 +51,8 @@ func TestFilter(t *testing.T) {
 		{"dns", udp(53, 51000, 0), false},
 		{"tcp", tcp, false},
 		{"fragment", udp(5353, 5353, 0x0010), false},
-		{"ipv6", ipv6, false},
+		{"ipv6 udp", ipv6, false},
+		{"icmpv6", icmp6, true},
 	}
 	for _, c := range cases {
 		n, err := vm.Run(c.frame)

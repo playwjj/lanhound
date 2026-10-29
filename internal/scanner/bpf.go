@@ -20,7 +20,8 @@ func filter() []bpf.Instruction {
 	add(
 		bpf.LoadAbsolute{Off: 12, Size: 2},                           // 0: EtherType
 		bpf.JumpIf{Cond: bpf.JumpEqual, Val: 0x0806, SkipTrue: 0},    // 1: ARP → accept
-		bpf.JumpIf{Cond: bpf.JumpNotEqual, Val: 0x0800, SkipTrue: 0}, // 2: not IPv4 → drop
+		bpf.JumpIf{Cond: bpf.JumpEqual, Val: 0x86dd, SkipTrue: 0},    // 2: IPv6 → icmp6 check (patched below)
+		bpf.JumpIf{Cond: bpf.JumpNotEqual, Val: 0x0800, SkipTrue: 0}, // 3: not IPv4 → drop
 		bpf.LoadAbsolute{Off: 23, Size: 1},                           // 3: IP protocol
 		bpf.JumpIf{Cond: bpf.JumpNotEqual, Val: 17, SkipTrue: 0},     // 4: not UDP → drop
 		bpf.LoadAbsolute{Off: 20, Size: 2},                           // 5: flags + fragment offset
@@ -39,6 +40,14 @@ func filter() []bpf.Instruction {
 	add(bpf.RetConstant{Val: 0})
 	accept := len(prog)
 	add(bpf.RetConstant{Val: 0x40000})
+	// IPv6: keep ICMPv6 (neighbour discovery, echo replies) only.
+	icmp6 := len(prog)
+	add(
+		bpf.LoadAbsolute{Off: 20, Size: 1}, // next header
+		bpf.JumpIf{Cond: bpf.JumpEqual, Val: 58},
+		bpf.RetConstant{Val: 0},
+		bpf.RetConstant{Val: 0x40000},
+	)
 
 	for i, ins := range prog {
 		j, ok := ins.(bpf.JumpIf)
@@ -48,7 +57,12 @@ func filter() []bpf.Instruction {
 		// Every "equal" test means a match (accept), every "not equal"
 		// or "bits set" test a reject (drop).
 		to := drop
-		if j.Cond == bpf.JumpEqual {
+		switch {
+		case i == 2:
+			to = icmp6
+		case i == icmp6+1:
+			to = icmp6 + 3 // ICMPv6 → accept
+		case j.Cond == bpf.JumpEqual:
 			to = accept
 		}
 		j.SkipTrue = uint8(to - i - 1)

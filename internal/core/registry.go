@@ -268,6 +268,9 @@ func (r *Registry) observe(s passive.Sighting, quiet bool) {
 	if r.applyHostname(d, s.Hostname, s.HostnameSource, s.At) {
 		changed = true
 	}
+	if addIPv6(d, s.IP6) {
+		changed = true
+	}
 	if s.Model != "" && s.Model != d.Model && (d.Model == "" || s.Source == passive.SrcMDNS) {
 		d.Model = s.Model
 		changed = true
@@ -295,6 +298,8 @@ func (r *Registry) addDevice(s passive.Sighting, mac string, quiet bool) {
 	if s.IP != nil {
 		d.IP = s.IP.String()
 	}
+	d.IPv6 = []string{}
+	addIPv6(d, s.IP6)
 	if s.Hostname != "" {
 		d.Hostname, d.HostnameSource = s.Hostname, s.HostnameSource
 	}
@@ -316,6 +321,31 @@ func (r *Registry) addDevice(s passive.Sighting, mac string, quiet bool) {
 	if d.Hostname == "" {
 		r.queueProbe(d)
 	}
+}
+
+// maxIPv6 bounds the addresses kept per device: privacy extensions
+// rotate global addresses daily.
+const maxIPv6 = 6
+
+// addIPv6 records a new IPv6 address (newest first). It reports whether
+// the list changed; a known address is not moved, to avoid a write per
+// sweep.
+func addIPv6(d *store.Device, ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	a := ip.String()
+	for _, have := range d.IPv6 {
+		if have == a {
+			return false
+		}
+	}
+	list := append([]string{a}, d.IPv6...)
+	if len(list) > maxIPv6 {
+		list = list[:maxIPv6]
+	}
+	d.IPv6 = list
+	return true
 }
 
 // applyHostname adopts name when its source ranks at least as high as
@@ -660,6 +690,9 @@ func (r *Registry) Merge(src, dst int64) (View, error) {
 	}
 	if m.Model == "" {
 		m.Model = s.Model
+	}
+	for i := len(s.IPv6) - 1; i >= 0; i-- {
+		addIPv6(&m, net.ParseIP(s.IPv6[i]))
 	}
 	if err := r.o.Store.Merge(src, &m); err != nil {
 		return View{}, err

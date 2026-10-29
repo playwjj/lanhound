@@ -93,7 +93,7 @@ func TestDevicesAPI(t *testing.T) {
 	}
 	r = do(t, "GET", ts.URL+"/api/devices.csv", "", nil)
 	b, _ := io.ReadAll(r.Body)
-	if r.StatusCode != 200 || !strings.HasPrefix(string(b), "\ufeffname,hostname,ip") || !strings.Contains(string(b), "Plug,,192.168.2.9,24:0a:c4:00:00:01") {
+	if r.StatusCode != 200 || !strings.HasPrefix(string(b), "\ufeffname,hostname,ip,ipv6") || !strings.Contains(string(b), "Plug,,192.168.2.9,,24:0a:c4:00:00:01") {
 		t.Fatalf("csv %d:\n%s", r.StatusCode, b)
 	}
 	if got := csvSafe("=HYPERLINK(1)"); got != "'=HYPERLINK(1)" {

@@ -40,7 +40,7 @@ const filtered = computed(() => {
     if (filter.value === 'offline' && d.online) return false
     if (filter.value === 'new' && d.known) return false
     if (!q) return true
-    return [displayName(d), d.hostname, d.ip, d.vendor, d.model, d.note, ...d.macs]
+    return [displayName(d), d.hostname, d.ip, d.vendor, d.model, d.note, ...d.macs, ...(d.ipv6 ?? [])]
       .filter(Boolean)
       .some((v) => v.toLowerCase().includes(q))
   })

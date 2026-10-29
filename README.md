@@ -42,7 +42,9 @@ docker compose up -d
 - **Discovers everything on the segment.** A polite ARP sweep every 5
   minutes, plus continuous passive listening to DHCP, mDNS, SSDP and
   NetBIOS chatter. A phone joining the Wi-Fi is usually seen within a
-  second or two, long before the next sweep.
+  second or two, long before the next sweep. IPv6 too: one echo to
+  `ff02::1` per sweep plus neighbour-discovery listening record each
+  device's link-local and global addresses.
 - **Names devices for you.** Hostnames from DHCP, mDNS, NetBIOS and your
   router's DNS; vendors from the embedded IEEE OUI registry (40k+
   entries); product hints like *Chromecast Ultra* or *DS920+* from mDNS
@@ -258,8 +260,9 @@ isolated by the access point. Run another instance there.
 - **v0.1**: discovery engine, history, web UI, new-device alerts
 - **v0.2 (this)**: security alerts (ARP spoofing/conflicts, ARP floods,
   gateway MAC change, rogue DHCP), critical devices, alert log, CSV export
-- **Next**: router/modem device tables (OpenWrt, generic URL),
-  randomized-MAC fingerprinting, IPv6 discovery, presence heat maps
+- **Next**: router/modem device tables (OpenWrt, generic URL), IPv6
+  discovery, presence heat maps (done on main, next release);
+  randomized-MAC fingerprinting
 
 ## License
 
