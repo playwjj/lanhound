@@ -61,7 +61,7 @@ docker compose up -d
   router's DNS; vendors from the embedded IEEE OUI registry (40k+
   entries); product hints like *Chromecast Ultra* or *DS920+* from mDNS
   and UPnP.
-- **Alerts on new devices** via Telegram and/or any webhook. Each alert says
+- **Alerts on new devices** via Telegram, email and/or any webhook. Each alert says
   what you need to tell friend from foe: name, vendor, IP, MAC, first-seen
   time. The first scan after install is a silent baseline, so you won't get
   30 messages in your first minute.
@@ -240,6 +240,7 @@ the UI shows them as locked.
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | — | Telegram alerts |
 | `TELEGRAM_API_URL` | `https://api.telegram.org` | Bot API proxy |
 | `LANHOUND_WEBHOOK_URL` | — | Webhook alerts |
+| `LANHOUND_SMTP_URL` | — | Email alerts: `smtp://user:pass@host:587?from=a@x.com&to=b@x.com,c@x.com` (`smtps://` for port 465, `smtp+plain://` for an unencrypted local relay) |
 | `TZ` | UTC | Time zone for alert timestamps |
 
 A device counts as offline once it has been silent for two sweeps plus a

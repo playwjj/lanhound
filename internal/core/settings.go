@@ -64,6 +64,9 @@ func (s *Settings) effective() notify.Settings {
 	if e.Language == "" {
 		e.Language = "en"
 	}
+	if e.SMTPSecurity == "" {
+		e.SMTPSecurity = notify.SMTPStartTLS
+	}
 	return e
 }
 
@@ -80,6 +83,13 @@ func (s *Settings) fields() []field {
 		{"telegramChatId", &s.env.TelegramChatID, func(n *notify.Settings) *string { return &n.TelegramChatID }},
 		{"telegramApi", &s.env.TelegramAPI, func(n *notify.Settings) *string { return &n.TelegramAPI }},
 		{"webhookUrl", &s.env.WebhookURL, func(n *notify.Settings) *string { return &n.WebhookURL }},
+		{"smtpHost", &s.env.SMTPHost, func(n *notify.Settings) *string { return &n.SMTPHost }},
+		{"smtpPort", &s.env.SMTPPort, func(n *notify.Settings) *string { return &n.SMTPPort }},
+		{"smtpSecurity", &s.env.SMTPSecurity, func(n *notify.Settings) *string { return &n.SMTPSecurity }},
+		{"smtpUser", &s.env.SMTPUser, func(n *notify.Settings) *string { return &n.SMTPUser }},
+		{"smtpPassword", &s.env.SMTPPassword, func(n *notify.Settings) *string { return &n.SMTPPassword }},
+		{"smtpFrom", &s.env.SMTPFrom, func(n *notify.Settings) *string { return &n.SMTPFrom }},
+		{"smtpTo", &s.env.SMTPTo, func(n *notify.Settings) *string { return &n.SMTPTo }},
 	}
 }
 
@@ -90,6 +100,9 @@ func (s *Settings) Public() PublicSettings {
 	p := PublicSettings{Settings: s.effective(), Locked: []string{}}
 	if p.TelegramToken != "" {
 		p.TelegramToken = maskSecret(p.TelegramToken)
+	}
+	if p.SMTPPassword != "" {
+		p.SMTPPassword = mask // never reveal any part of a password
 	}
 	for _, f := range s.fields() {
 		if *f.env != "" {
@@ -116,7 +129,19 @@ func (s *Settings) Put(n notify.Settings) (notify.Settings, error) {
 	if strings.HasPrefix(n.TelegramToken, mask) {
 		n.TelegramToken = s.cur.TelegramToken
 	}
+	if strings.HasPrefix(n.SMTPPassword, mask) {
+		n.SMTPPassword = s.cur.SMTPPassword
+	}
 	n.TelegramToken = strings.TrimSpace(n.TelegramToken)
+	n.SMTPHost = strings.TrimSpace(n.SMTPHost)
+	n.SMTPPort = strings.TrimSpace(n.SMTPPort)
+	n.SMTPFrom = strings.TrimSpace(n.SMTPFrom)
+	n.SMTPTo = strings.TrimSpace(n.SMTPTo)
+	switch n.SMTPSecurity {
+	case notify.SMTPTLS, notify.SMTPNone:
+	default:
+		n.SMTPSecurity = notify.SMTPStartTLS
+	}
 	n.TelegramChatID = strings.TrimSpace(n.TelegramChatID)
 	n.TelegramAPI = strings.TrimSpace(n.TelegramAPI)
 	n.WebhookURL = strings.TrimSpace(n.WebhookURL)
@@ -138,6 +163,9 @@ func (s *Settings) Resolve(n notify.Settings) notify.Settings {
 	defer s.mu.Unlock()
 	if strings.HasPrefix(n.TelegramToken, mask) {
 		n.TelegramToken = s.cur.TelegramToken
+	}
+	if strings.HasPrefix(n.SMTPPassword, mask) {
+		n.SMTPPassword = s.cur.SMTPPassword
 	}
 	saved := s.cur
 	s.cur = n

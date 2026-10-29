@@ -61,6 +61,15 @@ type Settings struct {
 	TelegramChatID string `json:"telegramChatId"`
 	TelegramAPI    string `json:"telegramApi"` // Bot API base URL, for self-hosted proxies
 	WebhookURL     string `json:"webhookUrl"`
+
+	// Email over SMTP.
+	SMTPHost     string `json:"smtpHost"`
+	SMTPPort     string `json:"smtpPort"`
+	SMTPSecurity string `json:"smtpSecurity"` // starttls (default), tls, none
+	SMTPUser     string `json:"smtpUser"`
+	SMTPPassword string `json:"smtpPassword"`
+	SMTPFrom     string `json:"smtpFrom"`
+	SMTPTo       string `json:"smtpTo"` // comma-separated
 }
 
 // DefaultTelegramAPI is the official Bot API endpoint.
@@ -85,7 +94,7 @@ func (s Settings) Wants(event string) bool {
 }
 
 // Configured reports whether any channel is set up.
-func (s Settings) Configured() bool { return s.Telegram() || s.WebhookURL != "" }
+func (s Settings) Configured() bool { return s.Telegram() || s.WebhookURL != "" || s.Email() }
 
 // DeviceInfo describes one device in an alert.
 type DeviceInfo struct {
@@ -140,6 +149,11 @@ func Send(ctx context.Context, s Settings, m Message) error {
 	if s.WebhookURL != "" {
 		if err := sendWebhook(ctx, s, m); err != nil {
 			errs = append(errs, fmt.Errorf("webhook: %w", err))
+		}
+	}
+	if s.Email() {
+		if err := sendEmail(ctx, s, m); err != nil {
+			errs = append(errs, fmt.Errorf("email: %w", err))
 		}
 	}
 	return errors.Join(errs...)

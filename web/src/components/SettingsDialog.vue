@@ -116,6 +116,49 @@ const test = () => act(() => api.testSettings(form.value), t('testOk'))
       </fieldset>
 
       <fieldset>
+        <legend>{{ t('email') }}</legend>
+        <div class="grid3">
+          <label class="field">
+            <span class="label">{{ t('smtpHost') }} <em v-if="isLocked('smtpHost')">{{ t('lockedEnv') }}</em></span>
+            <input v-model="form.smtpHost" type="text" placeholder="smtp.qq.com" :disabled="isLocked('smtpHost')" />
+          </label>
+          <label class="field">
+            <span class="label">{{ t('smtpPort') }}</span>
+            <input v-model="form.smtpPort" type="text" inputmode="numeric" :placeholder="form.smtpSecurity === 'tls' ? '465' : form.smtpSecurity === 'none' ? '25' : '587'" :disabled="isLocked('smtpPort')" />
+          </label>
+          <label class="field">
+            <span class="label">{{ t('smtpSecurity') }}</span>
+            <select v-model="form.smtpSecurity" :disabled="isLocked('smtpSecurity')">
+              <option value="starttls">STARTTLS</option>
+              <option value="tls">SSL/TLS</option>
+              <option value="none">{{ t('smtpNone') }}</option>
+            </select>
+          </label>
+        </div>
+        <div class="grid2">
+          <label class="field">
+            <span class="label">{{ t('username') }}</span>
+            <input v-model="form.smtpUser" type="text" autocomplete="off" :disabled="isLocked('smtpUser')" />
+          </label>
+          <label class="field">
+            <span class="label">{{ t('password') }}</span>
+            <input v-model="form.smtpPassword" type="password" autocomplete="new-password" :disabled="isLocked('smtpPassword')" />
+          </label>
+        </div>
+        <div class="grid2">
+          <label class="field">
+            <span class="label">{{ t('smtpFrom') }}</span>
+            <input v-model="form.smtpFrom" type="text" placeholder="LanHound <lanhound@example.com>" :disabled="isLocked('smtpFrom')" />
+          </label>
+          <label class="field">
+            <span class="label">{{ t('smtpTo') }}</span>
+            <input v-model="form.smtpTo" type="text" placeholder="me@example.com, family@example.com" :disabled="isLocked('smtpTo')" />
+          </label>
+        </div>
+        <span class="help">{{ t('smtpHelp') }}</span>
+      </fieldset>
+
+      <fieldset>
         <legend>Webhook</legend>
         <label class="field">
           <span class="label">{{ t('webhook') }} <em v-if="isLocked('webhookUrl')">{{ t('lockedEnv') }}</em></span>
@@ -132,7 +175,7 @@ const test = () => act(() => api.testSettings(form.value), t('testOk'))
       <p v-if="err" class="err small">{{ err }}</p>
 
       <div class="foot">
-        <span class="muted small hint">{{ t('password') }}</span>
+        <span class="muted small hint">{{ t('uiPasswordHint') }}</span>
         <button type="button" class="btn" :disabled="busy" @click="test">{{ t('sendTest') }}</button>
         <button type="submit" class="btn primary" :disabled="busy">{{ t('save') }}</button>
       </div>
@@ -226,6 +269,21 @@ legend {
 .help {
   font-size: 12px;
   color: var(--muted);
+}
+.grid2,
+.grid3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.grid3 {
+  grid-template-columns: 2fr 1fr 1fr;
+}
+@media (max-width: 520px) {
+  .grid2,
+  .grid3 {
+    grid-template-columns: 1fr;
+  }
 }
 .checks {
   display: grid;

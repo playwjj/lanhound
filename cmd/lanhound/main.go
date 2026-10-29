@@ -143,7 +143,15 @@ func serve(args []string) {
 	}
 	defer st.Close()
 
+	var smtpEnv notify.Settings
+	if raw := os.Getenv("LANHOUND_SMTP_URL"); raw != "" {
+		if smtpEnv, err = notify.ParseSMTPURL(raw); err != nil {
+			logx.Fatal("bad LANHOUND_SMTP_URL", "err", err)
+		}
+	}
 	settings, err := core.NewSettings(st, notify.Settings{
+		SMTPHost: smtpEnv.SMTPHost, SMTPPort: smtpEnv.SMTPPort, SMTPSecurity: smtpEnv.SMTPSecurity,
+		SMTPUser: smtpEnv.SMTPUser, SMTPPassword: smtpEnv.SMTPPassword, SMTPFrom: smtpEnv.SMTPFrom, SMTPTo: smtpEnv.SMTPTo,
 		Language:       os.Getenv("LANHOUND_LANG"),
 		TelegramToken:  os.Getenv("TELEGRAM_BOT_TOKEN"),
 		TelegramChatID: os.Getenv("TELEGRAM_CHAT_ID"),

@@ -773,3 +773,18 @@ func TestLink(t *testing.T) {
 		t.Fatalf("stale report should fall back to a guess: %+v", l)
 	}
 }
+
+func TestSettingsSMTPPasswordMasked(t *testing.T) {
+	st, _ := store.Open(filepath.Join(t.TempDir(), "m.db"))
+	defer st.Close()
+	s, _ := NewSettings(st, notify.Settings{})
+	_, _ = s.Put(notify.Settings{SMTPHost: "smtp.example.com", SMTPPassword: "app-pass-123456", SMTPFrom: "a@example.com", SMTPTo: "b@example.com"})
+	p := s.Public()
+	if p.SMTPPassword != mask || p.SMTPSecurity != notify.SMTPStartTLS {
+		t.Fatalf("public %+v", p.Settings)
+	}
+	_, _ = s.Put(p.Settings)
+	if s.Get().SMTPPassword != "app-pass-123456" {
+		t.Fatal("masked SMTP password overwrote the real one")
+	}
+}
