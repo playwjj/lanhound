@@ -124,7 +124,7 @@ func serve(args []string) {
 	if *interval < 30*time.Second {
 		log.Fatal("scan interval must be at least 30s")
 	}
-	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
+	if err := os.MkdirAll(*dataDir, 0o700); err != nil { // holds secrets: owner only
 		log.Fatal(err)
 	}
 	dbName := "lanhound.db"

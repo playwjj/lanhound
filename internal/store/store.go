@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -133,7 +134,17 @@ CREATE TABLE IF NOT EXISTS settings (
 `
 
 // Open opens (creating if needed) the database at path.
+//
+// The database holds secrets (bot tokens, router and MQTT passwords), so
+// it and its WAL/SHM companions are kept readable by the owner only.
 func Open(path string) (*Store, error) {
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err != nil {
+			return nil, fmt.Errorf("create database: %w", err)
+		}
+		f.Close()
+	}
 	dsn := "file:" + path + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -149,6 +160,14 @@ func Open(path string) (*Store, error) {
 	if err := migrate(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	// Tighten databases created by earlier versions (0644), and the WAL
+	// and SHM files SQLite has created by now.
+	for _, f := range []string{path, path + "-wal", path + "-shm"} {
+		if err := os.Chmod(f, 0o600); err != nil && !errors.Is(err, os.ErrNotExist) {
+			db.Close()
+			return nil, fmt.Errorf("protect %s: %w", f, err)
+		}
 	}
 	return &Store{db: db}, nil
 }

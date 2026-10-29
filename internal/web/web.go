@@ -64,6 +64,7 @@ type Server struct {
 	Password string
 
 	started time.Time
+	logins  *limiter
 }
 
 // Status is the dashboard header payload.
@@ -128,6 +129,7 @@ func (s *Server) Status() Status {
 // Handler returns the HTTP handler.
 func (s *Server) Handler() http.Handler {
 	s.started = time.Now()
+	s.logins = newLimiter()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/status", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, s.Status()) })
 	mux.HandleFunc("GET /api/devices", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, s.Registry.Devices()) })
@@ -180,12 +182,22 @@ func (s *Server) guard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Probes authenticate with their own token (checked in ingest).
 		if s.Password != "" && r.URL.Path != "/api/ingest" {
+			ip := clientIP(r)
+			if left, locked := s.logins.locked(ip); locked {
+				w.Header().Set("Retry-After", strconv.Itoa(int(left.Seconds())+1))
+				http.Error(w, "too many wrong passwords, try again later", http.StatusTooManyRequests)
+				return
+			}
 			_, pass, ok := r.BasicAuth()
 			if !ok || subtle.ConstantTimeCompare([]byte(pass), []byte(s.Password)) != 1 {
+				if ok { // a wrong password, not the browser's first credential-less request
+					s.logins.fail(ip)
+				}
 				w.Header().Set("WWW-Authenticate", `Basic realm="LanHound"`)
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
+			s.logins.ok(ip)
 		}
 		switch r.Method {
 		case http.MethodGet, http.MethodHead:

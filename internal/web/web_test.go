@@ -137,6 +137,59 @@ func TestPassword(t *testing.T) {
 	resp.Body.Close()
 }
 
+func TestLoginLockout(t *testing.T) {
+	ts, _, _ := setup(t, "hunter2")
+	try := func(pass string) int {
+		req, _ := http.NewRequest("GET", ts.URL+"/api/status", nil)
+		req.SetBasicAuth("", pass)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	// Requests without credentials (a browser's first try) don't count.
+	for i := 0; i < 10; i++ {
+		do(t, "GET", ts.URL+"/api/status", "", nil)
+	}
+	if try("hunter2") != 200 {
+		t.Fatal("credential-less requests must not lock the user out")
+	}
+	for i := 0; i < maxFailures; i++ {
+		if c := try("guess"); c != 401 {
+			t.Fatalf("attempt %d: %d", i, c)
+		}
+	}
+	if c := try("hunter2"); c != http.StatusTooManyRequests {
+		t.Fatalf("locked out client got %d with the right password", c)
+	}
+}
+
+func TestLimiterExpires(t *testing.T) {
+	l := newLimiter()
+	now := time.Unix(1_800_000_000, 0)
+	l.now = func() time.Time { return now }
+	for i := 0; i < maxFailures-1; i++ {
+		l.fail("10.0.0.9")
+	}
+	now = now.Add(failureWindow + time.Minute) // old failures age out
+	l.fail("10.0.0.9")
+	if _, locked := l.locked("10.0.0.9"); locked {
+		t.Fatal("failures outside the window must not add up")
+	}
+	for i := 0; i < maxFailures; i++ {
+		l.fail("10.0.0.9")
+	}
+	if _, locked := l.locked("10.0.0.9"); !locked {
+		t.Fatal("should be locked")
+	}
+	now = now.Add(lockout + time.Second)
+	if _, locked := l.locked("10.0.0.9"); locked {
+		t.Fatal("lockout must expire")
+	}
+}
+
 func TestEventsSnapshotAndUpdates(t *testing.T) {
 	ts, reg, _ := setup(t, "")
 	resp, err := http.Get(ts.URL + "/api/events")

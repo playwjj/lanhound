@@ -1,6 +1,7 @@
 package store
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -180,5 +181,40 @@ func TestMigrateLegacyDatabase(t *testing.T) {
 	_ = s.db.QueryRow(`PRAGMA user_version`).Scan(&v)
 	if v != len(migrations) {
 		t.Fatalf("user_version %d", v)
+	}
+}
+
+func TestDatabaseFilesArePrivate(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "p.db")
+	// A database left by an older version, world-readable.
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.SetSetting("k", "v"); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{path, path + "-wal", path + "-shm"} {
+		st, err := os.Stat(f)
+		if err != nil {
+			continue
+		}
+		if mode := st.Mode().Perm(); mode != 0o600 {
+			t.Errorf("%s has mode %o, want 600", filepath.Base(f), mode)
+		}
+	}
+	fresh := filepath.Join(dir, "fresh.db")
+	s2, err := Open(fresh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s2.Close()
+	if st, _ := os.Stat(fresh); st.Mode().Perm() != 0o600 {
+		t.Errorf("new database mode %o", st.Mode().Perm())
 	}
 }
