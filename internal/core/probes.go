@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"net"
 	"regexp"
@@ -133,14 +132,8 @@ type Probes struct {
 // first sweep has finished: that sweep is a silent baseline.
 func NewProbes(st *store.Store, observe func(s passive.Sighting, quiet bool)) (*Probes, error) {
 	p := &Probes{store: st, observe: observe, now: time.Now, state: map[string]*probeState{}}
-	raw, err := st.Setting(probesKey)
-	if err != nil {
+	if _, err := st.GetJSON(probesKey, &p.records); err != nil {
 		return nil, err
-	}
-	if raw != "" {
-		if err := json.Unmarshal([]byte(raw), &p.records); err != nil {
-			return nil, err
-		}
 	}
 	return p, nil
 }
@@ -203,8 +196,7 @@ func (p *Probes) save(records []probeRecord) error {
 	if records == nil {
 		records = []probeRecord{}
 	}
-	b, _ := json.Marshal(records)
-	if err := p.store.SetSetting(probesKey, string(b)); err != nil {
+	if err := p.store.PutJSON(probesKey, records); err != nil {
 		return err
 	}
 	p.records = records

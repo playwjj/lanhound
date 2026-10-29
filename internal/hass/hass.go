@@ -27,6 +27,7 @@ import (
 	"github.com/playwjj/lanhound/internal/core"
 	"github.com/playwjj/lanhound/internal/logx"
 	"github.com/playwjj/lanhound/internal/notify"
+	"github.com/playwjj/lanhound/internal/secret"
 	"github.com/playwjj/lanhound/internal/store"
 )
 
@@ -61,8 +62,8 @@ type Status struct {
 
 // Store persists the config.
 type Store interface {
-	Setting(key string) (string, error)
-	SetSetting(key, value string) error
+	GetJSON(key string, v any) (bool, error)
+	PutJSON(key string, v any) error
 }
 
 // publisher is the slice of an MQTT client the bridge needs.
@@ -93,15 +94,9 @@ type Bridge struct {
 func New(st Store, reg *core.Registry, hub *core.Hub, language func() string, version, envURL string) (*Bridge, error) {
 	b := &Bridge{store: st, registry: reg, hub: hub, language: language, version: version, envURL: envURL,
 		published: map[int64]string{}, reload: make(chan struct{}, 1)}
-	raw, err := st.Setting(settingsKey)
-	if err != nil {
-		return nil, err
-	}
 	b.cfg.Prefix = DefaultPrefix
-	if raw != "" {
-		if err := json.Unmarshal([]byte(raw), &b.cfg); err != nil {
-			return nil, err
-		}
+	if _, err := st.GetJSON(settingsKey, &b.cfg); err != nil {
+		return nil, err
 	}
 	return b, nil
 }
@@ -124,9 +119,7 @@ func (b *Bridge) Config() Config {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	c := b.effective()
-	if c.Password != "" {
-		c.Password = "••••••"
-	}
+	c.Password = secret.Hide(c.Password)
 	if b.envURL != "" {
 		c.URL = redactURL(c.URL)
 	}
@@ -153,11 +146,8 @@ func (b *Bridge) Put(c Config) (Config, error) {
 		}
 	}
 	b.mu.Lock()
-	if strings.HasPrefix(c.Password, "••") {
-		c.Password = b.cfg.Password
-	}
-	raw, _ := json.Marshal(c)
-	if err := b.store.SetSetting(settingsKey, string(raw)); err != nil {
+	c.Password = secret.Keep(c.Password, b.cfg.Password)
+	if err := b.store.PutJSON(settingsKey, c); err != nil {
 		b.mu.Unlock()
 		return Config{}, err
 	}
@@ -173,9 +163,7 @@ func (b *Bridge) Put(c Config) (Config, error) {
 // Test connects once with c (password may be masked) and disconnects.
 func (b *Bridge) Test(c Config) error {
 	b.mu.Lock()
-	if strings.HasPrefix(c.Password, "••") {
-		c.Password = b.cfg.Password
-	}
+	c.Password = secret.Keep(c.Password, b.cfg.Password)
 	if b.envURL != "" {
 		c = b.effective()
 	}

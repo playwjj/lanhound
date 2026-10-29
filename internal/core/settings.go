@@ -1,11 +1,11 @@
 package core
 
 import (
-	"encoding/json"
 	"strings"
 	"sync"
 
 	"github.com/playwjj/lanhound/internal/notify"
+	"github.com/playwjj/lanhound/internal/secret"
 	"github.com/playwjj/lanhound/internal/store"
 )
 
@@ -29,20 +29,15 @@ type PublicSettings struct {
 	Locked []string `json:"locked"`
 }
 
-const mask = "••••••"
+// mask is kept as a local name for the tests.
+const mask = secret.Mask
 
 // NewSettings loads stored settings and applies env overrides.
 func NewSettings(st *store.Store, env notify.Settings) (*Settings, error) {
 	// Defaults for switches missing from older stored settings.
 	s := &Settings{store: st, env: env, cur: notify.Settings{NotifyNew: true, NotifySecurity: true, NotifyCritical: true}}
-	raw, err := st.Setting(settingsKey)
-	if err != nil {
+	if _, err := st.GetJSON(settingsKey, &s.cur); err != nil {
 		return nil, err
-	}
-	if raw != "" {
-		if err := json.Unmarshal([]byte(raw), &s.cur); err != nil {
-			return nil, err
-		}
 	}
 	return s, nil
 }
@@ -103,15 +98,9 @@ func (s *Settings) Public() PublicSettings {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	p := PublicSettings{Settings: s.effective(), Locked: []string{}}
-	if p.TelegramToken != "" {
-		p.TelegramToken = maskSecret(p.TelegramToken)
-	}
-	if p.SMTPPassword != "" {
-		p.SMTPPassword = mask // never reveal any part of a password
-	}
-	if p.ResendKey != "" {
-		p.ResendKey = mask
-	}
+	p.TelegramToken = secret.HideTail(p.TelegramToken) // the tail tells which bot it is
+	p.SMTPPassword = secret.Hide(p.SMTPPassword)
+	p.ResendKey = secret.Hide(p.ResendKey)
 	for _, f := range s.fields() {
 		if *f.env != "" {
 			p.Locked = append(p.Locked, f.name)
@@ -120,34 +109,15 @@ func (s *Settings) Public() PublicSettings {
 	return p
 }
 
-// maskSecret keeps the last 4 characters so the user can recognize
-// which token is configured.
-func maskSecret(v string) string {
-	if len(v) <= 8 {
-		return mask
-	}
-	return mask + v[len(v)-4:]
-}
-
 // Put stores new settings. A masked token (as returned by Public)
 // means "unchanged".
 func (s *Settings) Put(n notify.Settings) (notify.Settings, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if strings.HasPrefix(n.TelegramToken, mask) {
-		n.TelegramToken = s.cur.TelegramToken
-	}
-	if strings.HasPrefix(n.SMTPPassword, mask) {
-		n.SMTPPassword = s.cur.SMTPPassword
-	}
-	if strings.HasPrefix(n.ResendKey, mask) {
-		n.ResendKey = s.cur.ResendKey
-	}
-	n.ResendKey = strings.TrimSpace(n.ResendKey)
+	s.keepSecrets(&n)
 	if n.EmailVia != notify.ViaResend {
 		n.EmailVia = notify.ViaSMTP
 	}
-	n.TelegramToken = strings.TrimSpace(n.TelegramToken)
 	n.SMTPHost = strings.TrimSpace(n.SMTPHost)
 	n.SMTPPort = strings.TrimSpace(n.SMTPPort)
 	n.SMTPFrom = strings.TrimSpace(n.SMTPFrom)
@@ -163,8 +133,7 @@ func (s *Settings) Put(n notify.Settings) (notify.Settings, error) {
 	if n.Language != "zh" {
 		n.Language = "en"
 	}
-	b, _ := json.Marshal(n)
-	if err := s.store.SetSetting(settingsKey, string(b)); err != nil {
+	if err := s.store.PutJSON(settingsKey, n); err != nil {
 		return notify.Settings{}, err
 	}
 	s.cur = n
@@ -176,18 +145,18 @@ func (s *Settings) Put(n notify.Settings) (notify.Settings, error) {
 func (s *Settings) Resolve(n notify.Settings) notify.Settings {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if strings.HasPrefix(n.TelegramToken, mask) {
-		n.TelegramToken = s.cur.TelegramToken
-	}
-	if strings.HasPrefix(n.SMTPPassword, mask) {
-		n.SMTPPassword = s.cur.SMTPPassword
-	}
-	if strings.HasPrefix(n.ResendKey, mask) {
-		n.ResendKey = s.cur.ResendKey
-	}
+	s.keepSecrets(&n)
 	saved := s.cur
 	s.cur = n
 	e := s.effective()
 	s.cur = saved
 	return e
+}
+
+// keepSecrets puts the stored secrets back where the UI sent masks.
+// Caller holds s.mu.
+func (s *Settings) keepSecrets(n *notify.Settings) {
+	n.TelegramToken = strings.TrimSpace(secret.Keep(n.TelegramToken, s.cur.TelegramToken))
+	n.SMTPPassword = secret.Keep(n.SMTPPassword, s.cur.SMTPPassword)
+	n.ResendKey = strings.TrimSpace(secret.Keep(n.ResendKey, s.cur.ResendKey))
 }

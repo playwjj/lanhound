@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/playwjj/lanhound/internal/logx"
 	"github.com/playwjj/lanhound/internal/router"
+	"github.com/playwjj/lanhound/internal/secret"
 	"github.com/playwjj/lanhound/internal/store"
 )
 
@@ -49,14 +49,8 @@ type Routers struct {
 // NewRouters loads the stored sources.
 func NewRouters(st *store.Store, reg *Registry, hub *Hub) (*Routers, error) {
 	r := &Routers{store: st, registry: reg, hub: hub, newSrc: router.New, sources: map[string]router.Source{}, status: map[string]*RouterStatus{}, kick: make(chan struct{}, 1)}
-	raw, err := st.Setting(routersKey)
-	if err != nil {
+	if _, err := st.GetJSON(routersKey, &r.configs); err != nil {
 		return nil, err
-	}
-	if raw != "" {
-		if err := json.Unmarshal([]byte(raw), &r.configs); err != nil {
-			return nil, err
-		}
 	}
 	return r, nil
 }
@@ -148,9 +142,7 @@ func (r *Routers) Status() []RouterStatus {
 		if s := r.status[c.ID]; s != nil {
 			st.LastPoll, st.LastError, st.Devices = s.LastPoll, s.LastError, s.Devices
 		}
-		if st.Password != "" {
-			st.Password = mask // never reveal any part of a password
-		}
+		st.Password = secret.Hide(st.Password)
 		out = append(out, st)
 	}
 	return out
@@ -158,14 +150,13 @@ func (r *Routers) Status() []RouterStatus {
 
 // resolve fills a masked password from the stored config with the same ID.
 func (r *Routers) resolve(c router.Config) router.Config {
-	if strings.HasPrefix(c.Password, mask) {
-		c.Password = ""
-		for _, old := range r.configs {
-			if old.ID == c.ID {
-				c.Password = old.Password
-			}
+	stored := ""
+	for _, old := range r.configs {
+		if old.ID == c.ID {
+			stored = old.Password
 		}
 	}
+	c.Password = secret.Keep(c.Password, stored)
 	return c
 }
 
@@ -207,8 +198,7 @@ func (r *Routers) Put(list []router.Config) ([]RouterStatus, error) {
 			list[i].ID = hex.EncodeToString(b)
 		}
 	}
-	b, _ := json.Marshal(list)
-	if err := r.store.SetSetting(routersKey, string(b)); err != nil {
+	if err := r.store.PutJSON(routersKey, list); err != nil {
 		r.mu.Unlock()
 		return nil, err
 	}

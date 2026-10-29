@@ -492,6 +492,28 @@ func (s *Store) Setting(key string) (string, error) {
 	return v, err
 }
 
+// GetJSON decodes the JSON setting key into v. found is false (and v
+// untouched) when the key is unset.
+func (s *Store) GetJSON(key string, v any) (found bool, err error) {
+	raw, err := s.Setting(key)
+	if err != nil || raw == "" {
+		return false, err
+	}
+	if err := json.Unmarshal([]byte(raw), v); err != nil {
+		return false, fmt.Errorf("setting %s: %w", key, err)
+	}
+	return true, nil
+}
+
+// PutJSON stores v as the JSON setting key.
+func (s *Store) PutJSON(key string, v any) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	return s.SetSetting(key, string(b))
+}
+
 // SetSetting stores a setting.
 func (s *Store) SetSetting(key, value string) error {
 	_, err := s.db.Exec(`INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, value)
