@@ -11,7 +11,10 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          # Latest stable patch release, not the go.mod minimum: release
+          # binaries must not carry standard-library CVEs.
+          go-version: stable
+          check-latest: true
       - uses: actions/setup-node@v5
         with:
           node-version: 22
@@ -38,7 +41,10 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          # Latest stable patch release, not the go.mod minimum: release
+          # binaries must not carry standard-library CVEs.
+          go-version: stable
+          check-latest: true
       - run: go test -c -tags rawsock -o scanner.test ./internal/scanner
       - run: sudo ./scanner.test -test.run TestRealLink -test.v
 
@@ -50,6 +56,9 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          # Latest stable patch release, not the go.mod minimum: release
+          # binaries must not carry standard-library CVEs.
+          go-version: stable
+          check-latest: true
       - run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
