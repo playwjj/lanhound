@@ -56,6 +56,7 @@ type Server struct {
 	Security Security
 	Routers  *core.Routers // nil disables router sources
 	HASS     HASS          // nil disables the Home Assistant bridge
+	Services *core.ServiceScan
 	Version  string
 	Interval time.Duration
 	// Password enables HTTP basic auth (any username) when non-empty.
@@ -77,6 +78,7 @@ type Status struct {
 	Gateways     map[string][]string `json:"gateways"` // interface → default gateway(s)
 	Routers      []core.RouterStatus `json:"routers"`
 	HASS         *hass.Status        `json:"hass,omitempty"`
+	ServiceScan  bool                `json:"serviceScan"`
 }
 
 // Status builds the current status payload.
@@ -99,6 +101,7 @@ func (s *Server) Status() Status {
 		hs = &st
 	}
 	return Status{
+		ServiceScan:  s.Services != nil && s.Services.Enabled(),
 		HASS:         hs,
 		Routers:      routers,
 		Gateways:     gateways,
@@ -139,6 +142,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/activity", s.activity)
 	mux.HandleFunc("GET /api/alerts", s.alerts)
 	mux.HandleFunc("POST /api/alerts/{id}/trust", s.trustAlert)
+	mux.HandleFunc("PUT /api/services", s.putServices)
+	mux.HandleFunc("POST /api/devices/{id}/probe", s.probeDevice)
 	mux.HandleFunc("GET /api/hass", s.getHASS)
 	mux.HandleFunc("PUT /api/hass", s.putHASS)
 	mux.HandleFunc("POST /api/hass/test", s.testHASS)
@@ -346,6 +351,42 @@ func (s *Server) trustAlert(w http.ResponseWriter, r *http.Request) {
 	if err := s.Security.TrustDHCP(m.Interface, m.Key); err != nil {
 		fail(w, err)
 		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func (s *Server) putServices(w http.ResponseWriter, r *http.Request) {
+	if s.Services == nil {
+		http.Error(w, "service scanning unavailable", http.StatusNotFound)
+		return
+	}
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	if err := s.Services.SetEnabled(body.Enabled); err != nil {
+		fail(w, err)
+		return
+	}
+	s.Hub.Publish("status", s.Status())
+	writeJSON(w, map[string]bool{"enabled": body.Enabled})
+}
+
+// probeDevice probes one device now — an explicit user request, so it
+// runs even when background scanning is off.
+func (s *Server) probeDevice(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if _, err := s.Registry.Device(id); err != nil {
+		fail(w, err)
+		return
+	}
+	if s.Services != nil {
+		s.Services.ProbeNow(id)
 	}
 	writeJSON(w, map[string]bool{"ok": true})
 }

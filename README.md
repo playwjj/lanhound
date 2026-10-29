@@ -146,6 +146,22 @@ only the router knows are listed in their own section. The first sync of
 a source is silent, like the first sweep. Passwords are stored in the
 local database.
 
+## Service detection (optional, off by default)
+
+Turn it on under **Settings → Discovery** and LanHound identifies what
+each device runs. Once a day per device, plus right away for new ones,
+it opens a TCP connection to about 20 common ports (SSH, web, SMB, AFP,
+RTSP, IPP/9100, RDP/VNC, AirPlay, Cast, Plex, Home Assistant…), one
+device at a time, and reads web page titles and SSH banners. From that
+it guesses the device type (NAS, camera, printer, router, computer,
+phone, media player, server, smart home). Web UIs become clickable links
+in the device panel. **Telnet is flagged as risky**: it is still common
+on cheap cameras and ISP modems.
+
+This is a (gentle) port scan, which is why it is opt-in. Only enable it
+on networks you own. `lanhound probe <ip>` runs the same probe once from
+the command line, and the device panel has a "Probe now" button.
+
 ## Home Assistant
 
 Under **Settings → Home Assistant**, point LanHound at the MQTT broker
@@ -207,8 +223,9 @@ Only run LanHound on networks you own or are authorized to monitor.
   never configured.
 - **Sentinel, not soldier.** LanHound sends only ordinary ARP requests
   from the host's own IP/MAC (plus a reverse-DNS lookup and a NetBIOS name
-  query for devices that never said their name, and a DHCPDISCOVER every
-  30 minutes to spot rogue DHCP servers) and otherwise listens. No
+  query for devices that never said their name, a DHCPDISCOVER every 30
+  minutes to spot rogue DHCP servers, and — only if you turn service
+  detection on — TCP connects to common ports) and otherwise listens. No
   ARP spoofing, no gratuitous ARP, no deauth, no "kicking" devices.
   Enforcement belongs to your router.
 - **Small.** One static binary (pure Go, no cgo) with the UI embedded.

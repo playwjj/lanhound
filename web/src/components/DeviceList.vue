@@ -19,6 +19,7 @@ function whyText(d) {
 
 function subtitle(d) {
   const parts = []
+  if (d.kind) parts.push(t('kind_' + d.kind))
   if (d.name && d.hostname && d.name !== d.hostname) parts.push(d.hostname)
   if (d.model && d.model !== displayName(d)) parts.push(d.model)
   if (d.note) parts.push(d.note)

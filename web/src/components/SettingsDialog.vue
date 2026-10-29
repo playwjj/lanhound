@@ -59,7 +59,7 @@ const test = () => act(() => api.testSettings(form.value), t('testOk'))
     <header>
       <div class="tabs" role="tablist">
         <button :class="{ active: tab === 'notify' }" role="tab" @click="tab = 'notify'"><Icon name="bell" :size="14" />{{ t('notifications') }}</button>
-        <button :class="{ active: tab === 'routers' }" role="tab" @click="tab = 'routers'"><Icon name="globe" :size="14" />{{ t('routers') }}</button>
+        <button :class="{ active: tab === 'routers' }" role="tab" @click="tab = 'routers'"><Icon name="globe" :size="14" />{{ t('discovery') }}</button>
         <button :class="{ active: tab === 'hass' }" role="tab" @click="tab = 'hass'"><Icon name="settings" :size="14" />Home Assistant</button>
       </div>
       <span class="grow"></span>

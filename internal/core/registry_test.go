@@ -15,6 +15,7 @@ import (
 	"github.com/playwjj/lanhound/internal/passive"
 	"github.com/playwjj/lanhound/internal/router"
 	"github.com/playwjj/lanhound/internal/security"
+	"github.com/playwjj/lanhound/internal/services"
 	"github.com/playwjj/lanhound/internal/store"
 )
 
@@ -576,5 +577,61 @@ func TestFingerprintSkipsConcurrentDevices(t *testing.T) {
 	v, _ := h.r.Device(h.r.byMAC["5a:00:00:00:00:02"])
 	if v.SameAs != 0 {
 		t.Fatalf("two devices online at once are not one device: %+v", v)
+	}
+}
+
+type fakeProber struct{ calls []string }
+
+func (f *fakeProber) Probe(_ context.Context, ip string) []services.Service {
+	f.calls = append(f.calls, ip)
+	return []services.Service{{Port: 554, Name: "rtsp"}, {Port: 23, Name: "telnet", Risky: true}}
+}
+
+func TestServiceScan(t *testing.T) {
+	h := newHarness(t, "")
+	h.r.Observe(sight("00:bc:99:aa:00:09", "192.168.2.40"))
+	h.r.Observe(sight("24:0a:c4:00:00:03", "192.168.2.87"))
+	ss, err := NewServiceScan(h.st, h.r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fp := &fakeProber{}
+	ss.prober = fp
+	if ss.Enabled() {
+		t.Fatal("service scanning must be off by default")
+	}
+	id, ok := h.r.nextForServices()
+	if !ok {
+		t.Fatal("nothing to probe")
+	}
+	ss.probe(context.Background(), id)
+	v, _ := h.r.Device(id)
+	if len(v.Services) != 2 || v.Kind != services.KindCamera || v.ServicesAt.IsZero() {
+		t.Fatalf("after probe %+v", v)
+	}
+	// The other device is next; the probed one waits a day.
+	id2, _ := h.r.nextForServices()
+	ss.probe(context.Background(), id2)
+	if _, ok := h.r.nextForServices(); ok {
+		t.Fatal("both probed; nothing should be due")
+	}
+	h.clk.Add(25 * time.Hour)
+	h.r.Observe(sight("00:bc:99:aa:00:09", "192.168.2.40"))
+	h.r.Observe(sight("24:0a:c4:00:00:03", "192.168.2.87"))
+	if _, ok := h.r.nextForServices(); !ok {
+		t.Fatal("refresh after a day")
+	}
+	if err := ss.SetEnabled(true); err != nil || !ss.Enabled() {
+		t.Fatal(err)
+	}
+	ss2, _ := NewServiceScan(h.st, h.r, nil)
+	if !ss2.Enabled() {
+		t.Fatal("switch not persisted")
+	}
+	devs, _, _ := h.st.Devices()
+	for _, d := range devs {
+		if d.ID == id && (len(d.Services) != 2 || !d.Services[1].Risky) {
+			t.Fatalf("services not stored: %+v", d.Services)
+		}
 	}
 }

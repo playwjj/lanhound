@@ -1,7 +1,7 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { api } from '../api'
-import { now } from '../state'
+import { now, state } from '../state'
 import { t } from '../i18n'
 import { ago, isZero } from '../format'
 import Icon from './Icon.vue'
@@ -34,6 +34,16 @@ async function test(i) {
   }
 }
 
+const svcBusy = ref(false)
+async function toggleServices(e) {
+  svcBusy.value = true
+  try {
+    await api.setServices(e.target.checked)
+  } finally {
+    svcBusy.value = false
+  }
+}
+
 async function save() {
   busy.value = true
   msg.value = err.value = ''
@@ -51,6 +61,16 @@ async function save() {
 
 <template>
   <div v-if="list" class="routers">
+    <fieldset>
+      <legend>{{ t('svcTitle') }}</legend>
+      <label class="check">
+        <input type="checkbox" :checked="state.status?.serviceScan" :disabled="svcBusy" @change="toggleServices" />
+        {{ t('svcToggle') }}
+      </label>
+      <span class="help">{{ t('svcHelp') }}</span>
+    </fieldset>
+
+    <h4>{{ t('routers') }}</h4>
     <p class="muted intro">{{ t('routersIntro') }}</p>
 
     <fieldset v-for="(r, i) in list" :key="r.id || 'new' + i">
@@ -121,6 +141,9 @@ async function save() {
 .routers {
   display: grid;
   gap: 12px;
+}
+h4 {
+  margin: 6px 0 0;
 }
 .intro {
   margin: 0;

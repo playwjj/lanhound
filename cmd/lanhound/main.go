@@ -2,6 +2,7 @@
 //
 //	lanhound            run the watchdog and web UI (default)
 //	lanhound scan       one-shot scan, print the devices and exit
+//	lanhound probe IP   show which common services a host runs
 //	lanhound version    print the version
 //
 // Discovery needs CAP_NET_RAW (root, or `sudo setcap cap_net_raw+ep
@@ -38,6 +39,7 @@ import (
 	"github.com/playwjj/lanhound/internal/probe"
 	"github.com/playwjj/lanhound/internal/scanner"
 	"github.com/playwjj/lanhound/internal/security"
+	"github.com/playwjj/lanhound/internal/services"
 	"github.com/playwjj/lanhound/internal/store"
 	"github.com/playwjj/lanhound/internal/web"
 )
@@ -56,10 +58,12 @@ func main() {
 		serve(args)
 	case "scan":
 		scan(args)
+	case "probe":
+		probeCmd(args)
 	case "version":
 		fmt.Println("lanhound", version)
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q (want serve, scan or version)\n", cmd)
+		fmt.Fprintf(os.Stderr, "unknown command %q (want serve, scan, probe or version)\n", cmd)
 		os.Exit(2)
 	}
 }
@@ -171,7 +175,20 @@ func serve(args []string) {
 	if err != nil {
 		log.Fatalf("load Home Assistant settings: %v", err)
 	}
-	srv := &web.Server{Registry: reg, Settings: settings, Hub: hub, Security: guard, Routers: routers, HASS: bridge, Version: version, Interval: *interval, Password: os.Getenv("LANHOUND_PASSWORD")}
+	svcScan, err := core.NewServiceScan(st, reg, func(ip string) bool {
+		for _, gws := range guard.Gateways() {
+			for _, g := range gws {
+				if g == ip {
+					return true
+				}
+			}
+		}
+		return false
+	})
+	if err != nil {
+		log.Fatalf("load service scan settings: %v", err)
+	}
+	srv := &web.Server{Registry: reg, Settings: settings, Hub: hub, Security: guard, Routers: routers, HASS: bridge, Services: svcScan, Version: version, Interval: *interval, Password: os.Getenv("LANHOUND_PASSWORD")}
 	publishStatus := func() { hub.Publish("status", srv.Status()) }
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -214,6 +231,7 @@ func serve(args []string) {
 	}()
 	go reg.Run(ctx)
 	go bridge.Run(ctx)
+	go svcScan.Run(ctx)
 
 	httpSrv := &http.Server{Addr: *listen, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
@@ -303,6 +321,31 @@ func scan(args []string) {
 	}
 	_ = w.Flush()
 	fmt.Printf("%d device(s) found\n", len(rows))
+}
+
+// probeCmd prints the services of one or more hosts — the same probe
+// the optional background service scan runs.
+func probeCmd(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: lanhound probe <ip> [ip…]")
+		os.Exit(2)
+	}
+	for _, ip := range args {
+		svcs := services.Prober{}.Probe(context.Background(), ip)
+		fmt.Printf("== %s  %s ==\n", ip, dash(services.Classify(svcs, services.Hints{})))
+		w := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
+		for _, s := range svcs {
+			risky := ""
+			if s.Risky {
+				risky = "  ⚠ risky"
+			}
+			fmt.Fprintf(w, "%d\t%s\t%s%s\n", s.Port, s.Name, s.Detail, risky)
+		}
+		_ = w.Flush()
+		if len(svcs) == 0 {
+			fmt.Println("no open ports among", len(services.DefaultPorts), "probed")
+		}
+	}
 }
 
 func dash(v string) string {

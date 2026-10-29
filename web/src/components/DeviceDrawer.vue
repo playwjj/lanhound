@@ -69,6 +69,17 @@ async function run(fn) {
 }
 
 const saveNote = () => run(async () => upsert(await api.patch(props.device.id, { note: note.value })))
+const probing = ref(false)
+async function probeNow() {
+  probing.value = true
+  try {
+    await api.probe(props.device.id)
+  } catch (e) {
+    error.value = e.message
+  }
+  // The result arrives over the live stream; stop the spinner after a bit.
+  setTimeout(() => (probing.value = false), 6000)
+}
 const toggleCritical = () => run(async () => upsert(await api.patch(props.device.id, { critical: !props.device.critical })))
 const toggleKnown = () => run(async () => upsert(await api.patch(props.device.id, { known: !props.device.known })))
 const merge = (into) =>
@@ -209,6 +220,10 @@ const days = computed(() => {
           <dt>{{ t('model') }}</dt>
           <dd>{{ device.model }}</dd>
         </template>
+        <template v-if="device.kind">
+          <dt>{{ t('kind') }}</dt>
+          <dd>{{ t('kind_' + device.kind) }}</dd>
+        </template>
         <dt>{{ t('vendor') }}</dt>
         <dd>{{ device.vendor || '—' }}</dd>
         <template v-if="device.dhcpFingerprint">
@@ -229,6 +244,22 @@ const days = computed(() => {
         <dt>{{ t('lastSeen') }}</dt>
         <dd>{{ dateTime(device.lastSeen) }}</dd>
       </dl>
+
+      <h3 class="svc-head">
+        {{ t('services') }}
+        <span v-if="device.servicesAt && !device.servicesAt.startsWith('0001')" class="muted small">{{ t('svcAt', { t: ago(device.servicesAt, now) }) }}</span>
+        <button class="btn small" :disabled="probing" @click="probeNow">{{ probing ? t('svcProbing') : t('svcProbe') }}</button>
+      </h3>
+      <ul v-if="device.services?.length" class="svcs">
+        <li v-for="s in device.services" :key="s.port">
+          <span class="mono port">{{ s.port }}</span>
+          <a v-if="s.url" :href="s.url" target="_blank" rel="noopener noreferrer">{{ s.name }}</a>
+          <span v-else>{{ s.name }}</span>
+          <span v-if="s.risky" class="badge risky" :title="t('svcRiskyTip')">{{ t('svcRisky') }}</span>
+          <span class="muted small detail">{{ s.detail }}</span>
+        </li>
+      </ul>
+      <p v-else class="muted small">{{ device.servicesAt && !device.servicesAt.startsWith('0001') ? t('svcNone') : t('svcNever') }}</p>
 
       <label class="field">
         <span class="label">{{ t('note') }}</span>
@@ -351,6 +382,42 @@ const days = computed(() => {
   align-items: center;
   gap: 10px;
   margin-bottom: 14px;
+}
+.svc-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.svc-head .btn {
+  margin-left: auto;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.svcs {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 16px;
+  display: grid;
+  gap: 4px;
+}
+.svcs li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.svcs .port {
+  min-width: 44px;
+}
+.svcs a {
+  color: var(--accent);
+}
+.svcs .detail {
+  overflow-wrap: anywhere;
+}
+.badge.risky {
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 .crit {
   display: flex;
