@@ -29,3 +29,27 @@ jobs:
             IFS=/ read os arch arm <<< "$t"
             GOOS=$os GOARCH=$arch GOARM=$arm CGO_ENABLED=0 go build -o /dev/null ./cmd/lanhound
           done
+
+  # The Linux raw-socket path for real: a veth pair into a network
+  # namespace, then the actual engine (AF_PACKET, BPF, ARP, ICMPv6).
+  rawsock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test -c -tags rawsock -o scanner.test ./internal/scanner
+      - run: sudo ./scanner.test -test.run TestRealLink -test.v
+
+  # Static analysis and known vulnerabilities in the code and its
+  # dependencies.
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
