@@ -312,7 +312,8 @@ func (b *Bridge) session(ctx context.Context, cfg Config) {
 	b.mu.Unlock()
 
 	events, cancel := b.hub.Subscribe()
-	defer cancel()
+	// cancel is replaced on resubscribe; release whichever is current.
+	defer func() { cancel() }()
 	p := mqttPublisher{cl}
 	if err := b.sync(p, cfg); err != nil {
 		b.setStatus(func(s *Status) { s.LastError = err.Error() })

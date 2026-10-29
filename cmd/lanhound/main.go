@@ -94,11 +94,7 @@ func envDuration(key string, def time.Duration) time.Duration {
 }
 
 func splitList(s string) []string {
-	var out []string
-	for _, f := range strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' }) {
-		out = append(out, f)
-	}
-	return out
+	return strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' })
 }
 
 func serve(args []string) {

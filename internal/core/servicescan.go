@@ -28,7 +28,6 @@ type ServiceScan struct {
 
 	mu      sync.Mutex
 	enabled bool
-	busy    bool
 	now     chan int64 // probe this device right away
 }
 
